@@ -1,0 +1,16 @@
+# Swift / SwiftPM
+macos/.build/
+macos/build/
+macos/*.xcodeproj/
+macos/.swiftpm/
+*.dSYM/
+# Node
+mock-backend/node_modules/
+# macOS
+.DS_Store
+# .NET
+windows/**/bin/
+windows/**/obj/
+windows/publish/
+windows/.vs/
+*.user

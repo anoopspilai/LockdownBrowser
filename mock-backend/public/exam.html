@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avaibe Exam</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --surface: #ffffff;
+    --border: #d9dde3;
+    --text: #1f2933;
+    --muted: #616e7c;
+    --accent: #1f4e8c;
+    --accent-dark: #173b6b;
+    --accent-soft: #e6eef9;
+    --green: #1f7a4d;
+    --green-soft: #e3f3ea;
+    --amber: #9a6700;
+    --amber-soft: #fff4d6;
+    --red: #b42318;
+    --red-soft: #fde8e6;
+    --radius: 8px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    display: flex; flex-direction: column;
+  }
+  input, textarea { -webkit-user-select: text; user-select: text; }
+
+  /* Banners ---------------------------------------------------------------- */
+  #browserModeBanner {
+    background: #fff3cd; color: #664d03; border-bottom: 1px solid #ffe69c;
+    padding: 8px 16px; font-size: 13px; text-align: center;
+  }
+  #toasts { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50; width: min(560px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    padding: 12px 40px 12px 14px; border-radius: var(--radius); box-shadow: var(--shadow);
+    border: 1px solid; position: relative; font-size: 14px;
+  }
+  .toast.warning { background: var(--amber-soft); border-color: #f0d48a; color: #6b4b00; }
+  .toast.error { background: var(--red-soft); border-color: #f2b3ad; color: #7a1a12; }
+  .toast.info { background: var(--accent-soft); border-color: #b9cdee; color: var(--accent-dark); }
+  .toast button { position: absolute; top: 6px; right: 6px; background: none; border: 0; font-size: 18px; color: inherit; cursor: pointer; line-height: 1; padding: 4px 6px; }
+
+  /* Header ----------------------------------------------------------------- */
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 10px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header .brand { font-weight: 600; color: var(--accent); letter-spacing: 0.2px; }
+  header .title { font-weight: 600; font-size: 16px; }
+  header .student { color: var(--muted); font-size: 14px; }
+  header .spacer { flex: 1; }
+  .countdown { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 18px; padding: 4px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); }
+  .countdown.low { background: var(--amber-soft); color: var(--amber); }
+  .countdown.critical { background: var(--red-soft); color: var(--red); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid; text-transform: uppercase; letter-spacing: 0.4px; }
+  .badge.aac { background: var(--green-soft); color: var(--green); border-color: #a9dcbf; }
+  .badge.kiosk-fallback { background: var(--amber-soft); color: var(--amber); border-color: #f0d48a; }
+  .badge.none { background: var(--red-soft); color: var(--red); border-color: #f2b3ad; }
+  .badge.unknown { background: #eef0f3; color: var(--muted); border-color: var(--border); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #9aa5b1; display: inline-block; }
+  .dot.online { background: var(--green); }
+  .dot.offline { background: var(--red); }
+
+  /* Main ------------------------------------------------------------------- */
+  main { flex: 1; width: 100%; max-width: 880px; margin: 0 auto; padding: 24px 16px 40px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .progress { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: var(--muted); font-size: 14px; }
+  .palette { display: flex; gap: 6px; flex-wrap: wrap; }
+  .palette button {
+    width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
+    font-weight: 600; color: var(--muted); cursor: pointer;
+  }
+  .palette button.answered { background: var(--accent-soft); color: var(--accent-dark); border-color: #b9cdee; }
+  .palette button.current { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent-dark); }
+  .question { padding: 24px; }
+  .question h2 { margin: 0 0 18px; font-size: 18px; font-weight: 600; line-height: 1.4; }
+  .option { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; cursor: pointer; background: var(--surface); }
+  .option:hover { border-color: #b9cdee; background: #f8fafd; }
+  .option.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .option input { margin: 0; width: 16px; height: 16px; accent-color: var(--accent); }
+  .nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .save-state { color: var(--muted); font-size: 13px; }
+  .save-state.saved { color: var(--green); }
+  button.btn { font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  button.btn:hover:not(:disabled) { background: #f4f6f9; }
+  button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn.primary:hover:not(:disabled) { background: var(--accent-dark); }
+  button.btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 12px; }
+  .footer .summary { color: var(--muted); font-size: 14px; }
+  a.link { color: var(--muted); font-size: 13px; text-decoration: underline; cursor: pointer; }
+  .state { padding: 48px 24px; text-align: center; }
+  .state h2 { margin: 0 0 8px; }
+  .state p { color: var(--muted); margin: 0 0 6px; }
+
+  /* Modal ------------------------------------------------------------------ */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(16, 24, 40, 0.45); display: flex; align-items: center; justify-content: center; z-index: 40; padding: 16px; }
+  .modal { background: var(--surface); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(16, 24, 40, 0.25); width: min(440px, 100%); padding: 24px; }
+  .modal h3 { margin: 0 0 8px; font-size: 17px; }
+  .modal p { margin: 0 0 20px; color: var(--muted); }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+  @media (max-width: 640px) {
+    header { padding: 10px 12px; gap: 10px; }
+    header .title { font-size: 15px; }
+    main { padding: 16px 10px 32px; }
+    .question { padding: 18px; }
+    .nav { padding: 12px 18px; }
+  }
+</style>
+</head>
+<body>
+  <div id="browserModeBanner" hidden>Not running inside Avaibe Exam — bridge unavailable (browser test mode)</div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <header>
+    <span class="brand">Avaibe Exam</span>
+    <span class="title" id="examTitle">Loading exam…</span>
+    <span class="student" id="studentName"></span>
+    <span class="spacer"></span>
+    <span class="dot" id="onlineDot" title="Connection"></span>
+    <span class="badge unknown" id="lockBadge">Checking</span>
+    <span class="countdown" id="countdown">--:--</span>
+  </header>
+
+  <main>
+    <div id="loading" class="card state">
+      <h2>Preparing your exam</h2>
+      <p id="loadingText">Connecting to the exam service…</p>
+    </div>
+
+    <div id="examView" hidden>
+      <div class="progress">
+        <span id="progressText">Question 1 of 5</span>
+        <div class="palette" id="palette"></div>
+      </div>
+      <div class="card">
+        <div class="question">
+          <h2 id="questionText"></h2>
+          <div id="options"></div>
+        </div>
+        <div class="nav">
+          <button class="btn" id="prevBtn">Previous</button>
+          <span class="save-state" id="saveState">Answers are saved automatically</span>
+          <button class="btn" id="nextBtn">Next</button>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="summary" id="summary"></span>
+        <div style="display:flex; align-items:center; gap:16px;">
+          <a class="link" id="requestExit">Request exit</a>
+          <button class="btn primary" id="submitBtn">Submit exam</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="doneView" class="card state" hidden>
+      <h2 id="doneTitle">Exam submitted</h2>
+      <p id="doneText">Your answers have been recorded.</p>
+      <p>Lockdown will be released shortly. Please wait for the exit screen.</p>
+    </div>
+  </main>
+
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">Submit your exam?</h3>
+      <p id="confirmText">You will not be able to change your answers after submitting.</p>
+      <div class="actions">
+        <button class="btn" id="cancelSubmit">Go back</button>
+        <button class="btn primary" id="confirmSubmit">Submit</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ------------------------------------------------------------------------
+  // Session bootstrap
+  // ------------------------------------------------------------------------
+  const sessionId = (location.pathname.match(/\/exam\/([^/]+)/) || [])[1] || "";
+  const api = (p) => `${location.origin}${p}`;
+  const $ = (id) => document.getElementById(id);
+
+  const state = {
+    sessionId,
+    token: null,
+    examCode: null,
+    questions: [],
+    answers: {},        // questionId -> option text
+    index: 0,
+    remaining: null,    // seconds
+    lastTick: null,
+    lockdownMode: (window.LockdownNative && window.LockdownNative.lockdownMode) || null,
+    submitted: false,
+    bridge: !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lockdown),
+    seq: 0
+  };
+
+  // ------------------------------------------------------------------------
+  // Native bridge (contract §5). LockdownBridge must exist before READY.
+  // ------------------------------------------------------------------------
+  window.LockdownBridge = {
+    onMessage(msg) {
+      try {
+        if (!msg || typeof msg !== "object") return;
+        const payload = msg.payload || {};
+        switch (msg.type) {
+          case "SESSION_STATUS": applySessionStatus(payload); break;
+          case "WARNING": toast(payload.message || "Security warning", "warning"); break;
+          case "EXIT_DENIED": toast("Exit denied: " + (payload.reason || "not authorised"), "error"); break;
+          case "LOCKDOWN_STATE":
+            state.lockdownMode = payload.engaged === false ? "none" : (payload.lockdownMode || state.lockdownMode);
+            renderBadge();
+            break;
+          default: console.log("[bridge] unhandled message", msg);
+        }
+      } catch (e) { console.error("[bridge] onMessage error", e); }
+    }
+  };
+
+  function sendNative(type, payload, id) {
+    const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lockdown;
+    const message = { type, id: id || `web_${++state.seq}`, payload: payload || {} };
+    if (!handler) { console.log("[bridge] (no native) would send", message); return false; }
+    try { handler.postMessage(message); return true; }
+    catch (e) { console.error("[bridge] postMessage failed", e); return false; }
+  }
+
+  function applySessionStatus(p) {
+    if (p.examTitle) $("examTitle").textContent = p.examTitle;
+    if (p.studentName) $("studentName").textContent = p.studentName;
+    if (typeof p.remainingSeconds === "number") { state.remaining = p.remainingSeconds; state.lastTick = Date.now(); }
+    if (p.lockdownMode) state.lockdownMode = p.lockdownMode;
+    if (typeof p.online === "boolean") {
+      $("onlineDot").className = "dot " + (p.online ? "online" : "offline");
+      $("onlineDot").title = p.online ? "Online" : "Offline";
+    }
+    renderBadge();
+    renderCountdown();
+  }
+
+  // Browser test mode: no native side, so fake SESSION_STATUS from the admin list.
+  async function simulateSessionStatus() {
+    try {
+      const list = await (await fetch(api("/api/v1/admin/sessions"))).json();
+      const s = Array.isArray(list) ? list.find((x) => x.sessionId === sessionId) : null;
+      if (!s) { toast("Session " + sessionId + " not found on the mock backend", "error"); return; }
+      applySessionStatus({
+        sessionId: s.sessionId, studentName: s.studentName, examTitle: s.examTitle,
+        lockdownMode: s.lockdownMode || "none", remainingSeconds: s.remainingSeconds,
+        displayCount: s.displayCount, online: true
+      });
+    } catch (e) { toast("Could not reach the mock backend: " + e.message, "error"); }
+  }
+
+  // ------------------------------------------------------------------------
+  // Rendering
+  // ------------------------------------------------------------------------
+  const BADGES = { aac: "Secure · AAC", "kiosk-fallback": "Kiosk fallback", none: "Not locked" };
+  function renderBadge() {
+    const b = $("lockBadge");
+    const mode = state.lockdownMode;
+    b.className = "badge " + (BADGES[mode] ? mode : "unknown");
+    b.textContent = BADGES[mode] || "Checking";
+  }
+
+  function fmt(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function currentRemaining() {
+    if (state.remaining === null) return null;
+    return Math.max(0, state.remaining - (Date.now() - state.lastTick) / 1000);
+  }
+
+  function renderCountdown() {
+    const el = $("countdown");
+    const r = currentRemaining();
+    if (r === null) { el.textContent = "--:--"; el.className = "countdown"; return; }
+    el.textContent = fmt(r);
+    el.className = "countdown" + (r <= 60 ? " critical" : r <= 300 ? " low" : "");
+    if (r <= 0 && !state.submitted && state.questions.length) timeUp();
+  }
+
+  function renderQuestion() {
+    const q = state.questions[state.index];
+    if (!q) return;
+    $("progressText").textContent = `Question ${state.index + 1} of ${state.questions.length}`;
+    $("questionText").textContent = q.text;
+    const opts = $("options");
+    opts.innerHTML = "";
+    q.options.forEach((opt, i) => {
+      const label = document.createElement("label");
+      label.className = "option" + (state.answers[q.id] === opt ? " selected" : "");
+      const input = document.createElement("input");
+      input.type = "radio"; input.name = "answer"; input.value = opt; input.id = `opt_${i}`;
+      input.checked = state.answers[q.id] === opt;
+      input.addEventListener("change", () => saveAnswer(q, opt));
+      const span = document.createElement("span");
+      span.textContent = opt;
+      label.append(input, span);
+      opts.appendChild(label);
+    });
+    $("prevBtn").disabled = state.index === 0;
+    $("nextBtn").disabled = state.index === state.questions.length - 1;
+    renderPalette();
+    renderSummary();
+  }
+
+  function renderPalette() {
+    const pal = $("palette");
+    pal.innerHTML = "";
+    state.questions.forEach((q, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = String(i + 1);
+      b.className = (state.answers[q.id] ? "answered" : "") + (i === state.index ? " current" : "");
+      b.title = `Go to question ${i + 1}`;
+      b.addEventListener("click", () => { state.index = i; renderQuestion(); });
+      pal.appendChild(b);
+    });
+  }
+
+  function renderSummary() {
+    const answered = Object.keys(state.answers).length;
+    $("summary").textContent = `${answered} of ${state.questions.length} answered`;
+  }
+
+  function saveAnswer(q, opt) {
+    state.answers[q.id] = opt;
+    const now = new Date();
+    $("saveState").textContent = "Saved " + now.toLocaleTimeString();
+    $("saveState").className = "save-state saved";
+    sendNative("REPORT_EVENT", { type: "ANSWER_SAVED", severity: "info", metadata: { question: q.id, answer: opt } });
+    renderQuestion();
+  }
+
+  // ------------------------------------------------------------------------
+  // Submit
+  // ------------------------------------------------------------------------
+  async function submitExam(auto) {
+    if (state.submitted) return;
+    state.submitted = true;
+    $("confirmModal").hidden = true;
+    $("submitBtn").disabled = true;
+    try {
+      const res = await fetch(api(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}` },
+        body: JSON.stringify({ answers: state.answers })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data.error && data.error.message) || `HTTP ${res.status}`);
+      $("examView").hidden = true;
+      $("doneView").hidden = false;
+      if (auto) { $("doneTitle").textContent = "Time is up"; $("doneText").textContent = "Your exam was submitted automatically."; }
+      sendNative("SUBMIT_COMPLETE", {});
+      if (!state.bridge) toast("Submitted. (Browser test mode: no native exit overlay.)", "info");
+    } catch (e) {
+      state.submitted = false;
+      $("submitBtn").disabled = false;
+      toast("Submit failed: " + e.message, "error");
+    }
+  }
+
+  function timeUp() { submitExam(true); }
+
+  // ------------------------------------------------------------------------
+  // Toasts
+  // ------------------------------------------------------------------------
+  function toast(text, kind, ttl) {
+    const el = document.createElement("div");
+    el.className = "toast " + (kind || "info");
+    el.textContent = text;
+    const close = document.createElement("button");
+    close.type = "button"; close.setAttribute("aria-label", "Dismiss"); close.textContent = "×";
+    close.addEventListener("click", () => el.remove());
+    el.appendChild(close);
+    $("toasts").appendChild(el);
+    setTimeout(() => el.remove(), ttl || (kind === "warning" ? 15000 : 8000));
+  }
+
+  // ------------------------------------------------------------------------
+  // Lockdown hygiene inside the page
+  // ------------------------------------------------------------------------
+  document.addEventListener("contextmenu", (e) => e.preventDefault());
+  ["dragstart", "drop", "dragover"].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
+  document.addEventListener("keydown", (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && ["p", "s", "u", "o"].includes(e.key.toLowerCase())) { e.preventDefault(); e.stopPropagation(); }
+    if (e.key === "F12") e.preventDefault();
+  }, true);
+  window.addEventListener("beforeprint", (e) => e.preventDefault());
+
+  // ------------------------------------------------------------------------
+  // Wiring
+  // ------------------------------------------------------------------------
+  $("prevBtn").addEventListener("click", () => { if (state.index > 0) { state.index--; renderQuestion(); } });
+  $("nextBtn").addEventListener("click", () => { if (state.index < state.questions.length - 1) { state.index++; renderQuestion(); } });
+  $("submitBtn").addEventListener("click", () => {
+    const unanswered = state.questions.length - Object.keys(state.answers).length;
+    $("confirmText").textContent = unanswered > 0
+      ? `You have ${unanswered} unanswered question${unanswered === 1 ? "" : "s"}. You will not be able to change your answers after submitting.`
+      : "You will not be able to change your answers after submitting.";
+    $("confirmModal").hidden = false;
+  });
+  $("cancelSubmit").addEventListener("click", () => { $("confirmModal").hidden = true; });
+  $("confirmSubmit").addEventListener("click", () => submitExam(false));
+  $("requestExit").addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!sendNative("REQUEST_EXIT", { reason: state.submitted ? "submitted" : "student-request" })) {
+      toast("Request exit only works inside Avaibe Exam (native overlay).", "info");
+    }
+  });
+
+  setInterval(renderCountdown, 1000);
+  // Re-sync with the source of truth periodically.
+  setInterval(() => { if (state.bridge) sendNative("GET_SESSION_STATUS", {}); else simulateSessionStatus(); }, 30000);
+
+  async function boot() {
+    if (!sessionId) { $("loadingText").textContent = "No session id in the URL. Expected /exam/<sessionId>."; return; }
+    renderBadge();
+
+    if (!state.bridge) $("browserModeBanner").hidden = false;
+    // Tell native we are ready to receive SESSION_STATUS.
+    if (state.bridge) sendNative("READY", {}); else simulateSessionStatus();
+
+    try {
+      $("loadingText").textContent = "Fetching session…";
+      const tokRes = await fetch(api(`/api/v1/sessions/${encodeURIComponent(sessionId)}/page-token`));
+      if (!tokRes.ok) throw new Error(`session ${sessionId} not found (${tokRes.status})`);
+      const tok = await tokRes.json();
+      state.token = tok.sessionToken;
+      state.examCode = tok.examCode;
+
+      $("loadingText").textContent = "Loading questions…";
+      const qRes = await fetch(api(`/api/v1/exams/${encodeURIComponent(state.examCode)}/questions`), {
+        headers: { Authorization: `Bearer ${state.token}` }
+      });
+      if (!qRes.ok) throw new Error(`could not load questions (${qRes.status})`);
+      const exam = await qRes.json();
+      state.questions = exam.questions || [];
+      if (!$("examTitle").textContent || $("examTitle").textContent === "Loading exam…") $("examTitle").textContent = exam.title;
+      if (state.remaining === null) { state.remaining = exam.durationMinutes * 60; state.lastTick = Date.now(); }
+
+      $("loading").hidden = true;
+      $("examView").hidden = false;
+      renderQuestion();
+      renderCountdown();
+    } catch (e) {
+      $("loadingText").textContent = "Could not load the exam: " + e.message;
+      toast("Could not load the exam: " + e.message, "error", 20000);
+    }
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

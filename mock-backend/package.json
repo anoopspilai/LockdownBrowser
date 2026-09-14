@@ -1,0 +1,16 @@
+{
+  "name": "avaibe-mock-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dependency-free mock backend, exam page and teacher console for the Avaibe Exam macOS lockdown browser",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

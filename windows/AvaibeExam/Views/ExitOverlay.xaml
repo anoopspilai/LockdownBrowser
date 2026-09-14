@@ -1,0 +1,25 @@
+<UserControl x:Class="AvaibeExam.Views.ExitOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource OverlayBackdropBrush}">
+    <Border Style="{StaticResource Card}" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel>
+            <TextBlock FontSize="40" HorizontalAlignment="Center" Foreground="{StaticResource AccentBrush}" Text="&#x1F512;"/>
+            <TextBlock Style="{StaticResource TitleText}" HorizontalAlignment="Center" Margin="0,8,0,0" Text="Exam locked"/>
+            <TextBlock x:Name="MessageText" Style="{StaticResource BodyText}" TextAlignment="Center" Margin="0,12,0,0"/>
+
+            <StackPanel x:Name="CodePanel" Margin="0,18,0,0">
+                <TextBlock Style="{StaticResource CaptionText}" TextAlignment="Center" Text="Enter the 6-digit release code from your teacher"/>
+                <TextBox x:Name="CodeBox" Width="200" MaxLength="6" FontSize="26" FontFamily="Consolas" TextAlignment="Center"
+                         Margin="0,8,0,0" Padding="6" PreviewTextInput="CodeBox_PreviewTextInput" TextChanged="CodeBox_TextChanged"
+                         KeyDown="CodeBox_KeyDown"/>
+                <Button x:Name="VerifyButton" Style="{StaticResource PrimaryButton}" Content="Verify code" HorizontalAlignment="Center"
+                        Margin="0,10,0,0" IsEnabled="False" Click="VerifyButton_Click"/>
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Style="{StaticResource ErrorText}" TextAlignment="Center" Margin="0,12,0,0" Visibility="Collapsed"/>
+            <TextBlock x:Name="StatusText" Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,12,0,0"/>
+            <TextBlock x:Name="ModeText" Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,4,0,0"/>
+        </StackPanel>
+    </Border>
+</UserControl>

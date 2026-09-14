@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <!-- WinForms is referenced only for System.Windows.Forms.Screen (monitor enumeration). -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <!--
+      Implicit usings are OFF on purpose. With UseWindowsForms=true the SDK adds
+      "global using System.Windows.Forms;" and "System.Drawing;" from its .targets (imported
+      AFTER this file), so a <Using Remove> here would not reliably take effect and WPF names
+      (Application, MessageBox, Brushes, Color, UserControl, ...) would become ambiguous.
+      Every .cs file carries its own explicit using directives.
+    -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>AvaibeExam</AssemblyName>
+    <RootNamespace>AvaibeExam</RootNamespace>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Version>0.1.0</Version>
+    <Product>Avaibe Exam</Product>
+    <Company>Avaibe</Company>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <!-- DPAPI (ProtectedData). Ships in the WindowsDesktop shared framework on most SDKs;
+         the explicit package reference guarantees it resolves either way. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

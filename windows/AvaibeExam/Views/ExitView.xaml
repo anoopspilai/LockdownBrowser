@@ -1,0 +1,14 @@
+<UserControl x:Class="AvaibeExam.Views.ExitView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource PageBrush}">
+    <Border Style="{StaticResource Card}" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel>
+            <TextBlock FontSize="40" HorizontalAlignment="Center" Foreground="{StaticResource SuccessBrush}" Text="&#x2713;"/>
+            <TextBlock Style="{StaticResource TitleText}" HorizontalAlignment="Center" Margin="0,8,0,0" Text="Lockdown released"/>
+            <TextBlock Style="{StaticResource BodyText}" TextAlignment="Center" Margin="0,10,0,0" Text="Lockdown released. You may close this app."/>
+            <TextBlock x:Name="ReasonText" Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,8,0,0"/>
+            <Button x:Name="QuitButton" Style="{StaticResource PrimaryButton}" Content="Quit" HorizontalAlignment="Center" Margin="0,20,0,0" Click="QuitButton_Click"/>
+        </StackPanel>
+    </Border>
+</UserControl>

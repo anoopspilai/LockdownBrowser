@@ -1,0 +1,14 @@
+<UserControl x:Class="AvaibeExam.Views.WarningOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource OverlayBackdropBrush}">
+    <Border Style="{StaticResource Card}" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel>
+            <TextBlock FontSize="40" HorizontalAlignment="Center" Foreground="{StaticResource WarningBrush}" Text="&#x26A0;"/>
+            <TextBlock Style="{StaticResource TitleText}" HorizontalAlignment="Center" Margin="0,8,0,0" Text="Security warning"/>
+            <TextBlock x:Name="MessageText" Style="{StaticResource BodyText}" TextAlignment="Center" Margin="0,12,0,0"/>
+            <TextBlock Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,8,0,0" Text="This event has been reported to your teacher."/>
+            <Button x:Name="OkButton" Style="{StaticResource PrimaryButton}" Content="OK" HorizontalAlignment="Center" Margin="0,18,0,0" Click="OkButton_Click"/>
+        </StackPanel>
+    </Border>
+</UserControl>

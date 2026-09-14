@@ -1,0 +1,9 @@
+bin/
+obj/
+publish/
+publish-standalone/
+installer/output/
+installer/MicrosoftEdgeWebview2Setup.exe
+*.user
+*.suo
+.vs/
