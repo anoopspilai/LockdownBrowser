@@ -47,5 +47,6 @@ one-time **Release code**.
 
 ## More
 
+- **Full guide, from first run to production:** [`windows/HOW-TO-RUN-AND-DEPLOY.md`](windows/HOW-TO-RUN-AND-DEPLOY.md)
 - Building, packaging and installer commands: [`windows/README.md`](windows/README.md)
 - Running the mock server: [`mock-backend/README.md`](mock-backend/README.md)

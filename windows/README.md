@@ -4,6 +4,9 @@ The exam lockdown browser for Windows. Built with C# 12, .NET 8, WPF and WebView
 
 > This code has not been compiled on Windows yet. The first build may need a few small fixes.
 
+For the complete step-by-step guide, including everything needed for production, read
+[`HOW-TO-RUN-AND-DEPLOY.md`](HOW-TO-RUN-AND-DEPLOY.md).
+
 ## Requirements
 
 - Windows 11, or Windows 10 version 2004 (build 19041) or newer
