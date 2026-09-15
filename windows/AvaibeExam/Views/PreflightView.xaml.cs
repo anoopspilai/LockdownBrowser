@@ -85,6 +85,10 @@ public partial class PreflightView : UserControl
         BackButton.IsEnabled = !_state.IsBusy;
         RerunButton.IsEnabled = !_state.IsBusy;
         StartButton.IsEnabled = _state.CanStartExam;
+        var blockers = _state.CanStartExam ? new System.Collections.Generic.List<string>() : _state.StartBlockers;
+        BlockersText.Text = string.Join("\n", blockers);
+        BlockersText.Visibility = blockers.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        StartButton.ToolTip = _state.CanStartExam ? "Start the exam and lock this PC" : "See the reasons above";
         BusyText.Text = _state.IsBusy ? _state.BusyText : string.Empty;
     }
 

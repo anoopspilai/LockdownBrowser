@@ -304,6 +304,26 @@ public sealed class AppState : ObservableObject
 
     public bool RequireAACButUnavailable => HasServerPolicy && Policy.RequireAAC && !AssignedAccessHint;
 
+    /// <summary>Plain reasons why Start Exam is disabled, shown above the button. Empty while busy.</summary>
+    public List<string> StartBlockers
+    {
+        get
+        {
+            var reasons = new List<string>();
+            if (IsBusy) return reasons;
+            if (Session == null || !HasServerPolicy)
+                reasons.Add("The server has not started your exam session yet. Fix the message above, then press Re-run checks or Back.");
+            if (PreflightServerFailures.Count > 0)
+                reasons.Add("The server rejected the readiness check: " + string.Join(", ", PreflightServerFailures) + ".");
+            var failing = PreflightItems.Where(i => i.BlocksStart).Select(i => i.Name.Replace(" (client-reported)", string.Empty)).ToList();
+            if (failing.Count > 0)
+                reasons.Add("Fix these required checks, then press Re-run checks: " + string.Join(", ", failing) + ".");
+            if (RequireAACButUnavailable)
+                reasons.Add("This exam requires a Windows Assigned Access (kiosk) setup, which this PC does not have.");
+            return reasons;
+        }
+    }
+
     public string RemainingTimeText => FormatCountdown(RemainingSeconds);
 
     public static string FormatCountdown(int seconds)
