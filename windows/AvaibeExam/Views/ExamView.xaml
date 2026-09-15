@@ -6,6 +6,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="32"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -49,15 +50,24 @@
             </DockPanel>
         </Border>
 
+        <!-- Blocked-link notice: its own row, so it never overlaps the WebView2 HWND. -->
+        <Border Grid.Row="1" x:Name="BlockedNoticeBar" Background="#FEF3C7" Padding="12,6" Visibility="Collapsed">
+            <DockPanel LastChildFill="True">
+                <Button x:Name="NoticeBackButton" DockPanel.Dock="Right" Content="Back to exam" FontSize="11" Padding="8,2"
+                        Cursor="Hand" Click="BackToExamButton_Click"/>
+                <TextBlock x:Name="BlockedNoticeText" FontSize="12" Foreground="#78350F" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
+        </Border>
+
         <!-- Exam web view. WebView2 is an HWND (airspace): overlays cannot be drawn over it, so the
              host is hidden whenever an overlay is visible (see ExamView.xaml.cs). -->
-        <ContentControl Grid.Row="1" x:Name="WebHost" Focusable="False"/>
-        <TextBlock Grid.Row="1" x:Name="LoadingText" Text="Loading exam…" Foreground="White" FontSize="16"
+        <ContentControl Grid.Row="2" x:Name="WebHost" Focusable="False"/>
+        <TextBlock Grid.Row="2" x:Name="LoadingText" Text="Loading exam…" Foreground="White" FontSize="16"
                    HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
 
-        <views:ScriptDialogOverlay Grid.Row="1" x:Name="Dialog" Visibility="Collapsed"/>
-        <views:PauseOverlay Grid.Row="1" x:Name="Pause" Visibility="Collapsed"/>
-        <views:WarningOverlay Grid.Row="1" x:Name="Warning" Visibility="Collapsed"/>
-        <views:ExitOverlay Grid.Row="1" x:Name="Exit" Visibility="Collapsed"/>
+        <views:ScriptDialogOverlay Grid.Row="2" x:Name="Dialog" Visibility="Collapsed"/>
+        <views:PauseOverlay Grid.Row="2" x:Name="Pause" Visibility="Collapsed"/>
+        <views:WarningOverlay Grid.Row="2" x:Name="Warning" Visibility="Collapsed"/>
+        <views:ExitOverlay Grid.Row="2" x:Name="Exit" Visibility="Collapsed"/>
     </Grid>
 </UserControl>

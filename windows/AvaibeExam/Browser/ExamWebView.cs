@@ -73,6 +73,13 @@ public sealed class ExamWebView
     private Uri? _examUrl;
     private string? _examOrigin;
     private string? _lastExamPageUrl;
+    private string _sessionId = string.Empty;
+    /// <summary>
+    /// True while the top-level page is the exam origin. Subresource filtering (W-12) applies only
+    /// then: an allowed resource page needs its own images, styles and scripts from other hosts.
+    /// Navigation to other sites stays refused by <see cref="IsNavigationAllowed"/>, frames included.
+    /// </summary>
+    private bool _topLevelOnExam = true;
     private readonly List<string> _linkPrefixes = new List<string>();
     private readonly HashSet<string> _extraAllowedHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _lastBlockedHost = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
@@ -93,6 +100,8 @@ public sealed class ExamWebView
     public Action<string>? OnForeignMessage { get; set; }
     /// <summary>A top-level navigation finished (success or failure); lets the UI refresh "Back to exam".</summary>
     public Action? OnNavigated { get; set; }
+    /// <summary>(host) — a page the student tried to open at top level was refused (for the on-screen notice).</summary>
+    public Action<string>? OnTopLevelBlocked { get; set; }
 
     public bool IsInitialized => _initialized;
     /// <summary>"scheme://host:port" of the exam page (lower-case host, explicit port).</summary>
@@ -160,6 +169,8 @@ public sealed class ExamWebView
         _examUrl = null;
         _examOrigin = null;
         _lastExamPageUrl = null;
+        _sessionId = sessionId ?? string.Empty;
+        _topLevelOnExam = true;
         _userDataFolder = Constants.WebView2UserDataFolderFor(sessionId);
         _linkPrefixes.Clear();
         _extraAllowedHosts.Clear();
@@ -168,8 +179,16 @@ public sealed class ExamWebView
         {
             if (Uri.TryCreate(link.Url, UriKind.Absolute, out var lu))
             {
+                var host = lu.Host.ToLowerInvariant();
                 _linkPrefixes.Add(NormalizedPrefix(lu));
-                _extraAllowedHosts.Add(lu.Host.ToLowerInvariant());
+                _extraAllowedHosts.Add(host);
+                // Sites redirect between example.com and www.example.com; a link to either means both.
+                var twin = WwwTwin(host);
+                if (twin != null)
+                {
+                    _linkPrefixes.Add(lu.Scheme + "://" + twin + ":" + lu.Port + lu.PathAndQuery);
+                    _extraAllowedHosts.Add(twin);
+                }
             }
         }
 
@@ -342,19 +361,37 @@ public sealed class ExamWebView
     }
 
     /// <summary>
-    /// "Back to exam": returns to the last exam-origin page seen (the launch URL carries a
-    /// one-time token that cannot be replayed, so the redirected /exam/&lt;sessionId&gt; page is
-    /// preferred), falling back to the original examUrl.
+    /// "Back to exam": returns to the real exam page. The launch URL carries a one-time token the
+    /// server refuses after its first use, so it is never reused: the last /exam/&lt;sessionId&gt; page
+    /// seen is preferred, otherwise that address is built from the exam origin and session id.
+    /// Answers are autosaved on the server and restored when the page loads.
     /// </summary>
     public bool BackToExam()
     {
         var core = Control?.CoreWebView2;
         if (core == null) return false;
-        var target = _lastExamPageUrl ?? _examUrl?.ToString();
+        var target = _lastExamPageUrl ?? ExamPageUrl();
         if (string.IsNullOrEmpty(target)) return false;
         Log.Info(LogCat, "Back to exam page");
         try { core.Navigate(target); } catch (Exception ex) { Log.Warn(LogCat, "Navigate failed: " + ex.GetType().Name); return false; }
         return true;
+    }
+
+    private string? ExamPageUrl()
+    {
+        if (_examUrl == null || _sessionId.Length == 0) return null;
+        return _examUrl.GetLeftPart(UriPartial.Authority) + "/exam/" + Uri.EscapeDataString(_sessionId);
+    }
+
+    /// <summary>example.com &lt;-&gt; www.example.com; null for IP addresses and single-label hosts.</summary>
+    public static string? WwwTwin(string host)
+    {
+        var h = (host ?? string.Empty).Trim().ToLowerInvariant();
+        if (h.Length == 0 || h.Contains(':') || Uri.CheckHostName(h) == UriHostNameType.IPv4) return null;
+        var labels = h.Split('.');
+        if (labels.Length < 2) return null;
+        if (h.StartsWith("www.", StringComparison.Ordinal) && labels.Length > 2) return h.Substring(4);
+        return "www." + h;
     }
 
     /// <summary>Whether the view currently shows a non-exam-origin page (drives the "Back to exam" button).</summary>
@@ -567,6 +604,15 @@ public sealed class ExamWebView
         {
             e.Cancel = true;
             Block(e.Uri, "navigation-" + reason);
+            string host = string.Empty;
+            try { if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var bu)) host = bu.Host.ToLowerInvariant(); } catch { /* ignore */ }
+            try { OnTopLevelBlocked?.Invoke(host); } catch (Exception ex) { Log.Warn(LogCat, "OnTopLevelBlocked handler failed: " + ex.GetType().Name); }
+            return;
+        }
+        // Allowed top-level navigation: subresource filtering follows the page being opened.
+        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var nu) && (nu.Scheme == Uri.UriSchemeHttp || nu.Scheme == Uri.UriSchemeHttps))
+        {
+            _topLevelOnExam = _examOrigin == null || OriginOf(nu) == _examOrigin;
         }
     }
 
@@ -627,6 +673,8 @@ public sealed class ExamWebView
             if (!Uri.TryCreate(uriText, UriKind.Absolute, out var u)) { Refuse(e, uriText, "unparsable"); return; }
             var scheme = u.Scheme.ToLowerInvariant();
             if (scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss") { Refuse(e, uriText, "scheme-" + scheme); return; }
+            // On an allowed resource page (not the exam page) its own assets may come from any host.
+            if (!_topLevelOnExam) return;
             if (!IsHostAllowed(u.Host)) { Refuse(e, uriText, "host-not-allowed"); return; }
         }
         catch (Exception ex)

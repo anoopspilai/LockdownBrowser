@@ -51,7 +51,7 @@ test("full session flow with signed release via unlock and via remote release", 
   assert.ok(session.nextBeatInSeconds >= 8 && session.nextBeatInSeconds <= 12);
   assert.equal(session.policy.mode, "school");
   assert.equal(session.policy.releaseOnSubmit, "teacher");
-  assert.deepEqual(session.policy.allowedDomains, ["127.0.0.1", "resources.example.org"]);
+  assert.deepEqual(session.policy.allowedDomains, ["127.0.0.1", "resources.example.org", "www.resources.example.org"]);
   assert.equal(session.policy.allowedLinks[0].url, `${t.base}/resources/formula-sheet.html`);
   assert.equal(session.policy.allowedLinks[1].url, "https://resources.example.org/x.pdf");
 
@@ -301,4 +301,13 @@ test("access code: clear messages, and a device is locked out after 10 wrong cod
   const other = await t.enroll("school");
   const ok = await t.startSession(other, { studentCode: student, examCode: "CODED", accessCode: " blue-42 " });
   assert.equal(ok.status, 200, `lockout is per device; surrounding spaces are trimmed: ${ok.text}`);
+});
+
+test("allowed link www twin", async () => {
+  const { wwwTwin } = await import("../src/services/sessions.js");
+  assert.equal(wwwTwin("google.com"), "www.google.com");
+  assert.equal(wwwTwin("www.google.com"), "google.com");
+  assert.equal(wwwTwin("127.0.0.1"), null);
+  assert.equal(wwwTwin("localhost"), null);
+  assert.equal(wwwTwin("www.com"), "www.www.com");
 });

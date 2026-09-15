@@ -76,6 +76,7 @@ public partial class ExamView : UserControl
             case nameof(AppState.ExitOverlay):
             case nameof(AppState.ScriptDialog):
             case nameof(AppState.IsOnResourcePage):
+            case nameof(AppState.BlockedNotice):
                 Render();
                 break;
         }
@@ -87,6 +88,10 @@ public partial class ExamView : UserControl
 
         var session = _state.Session;
         StudentText.Text = session?.StudentOrEmpty.Name ?? string.Empty;
+
+        var notice = _state.BlockedNotice;
+        BlockedNoticeText.Text = notice ?? string.Empty;
+        BlockedNoticeBar.Visibility = string.IsNullOrEmpty(notice) ? Visibility.Collapsed : Visibility.Visible;
         ExamText.Text = session?.ExamOrEmpty.Title ?? string.Empty;
 
         CountdownText.Text = AppState.FormatCountdown(_state.RemainingSeconds);

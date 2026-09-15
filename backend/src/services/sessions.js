@@ -23,6 +23,15 @@ export function publicHostFor(ctx, req) {
   }
 }
 
+/** example.com <-> www.example.com; null for IP addresses, localhost and single-label hosts. */
+export function wwwTwin(host) {
+  if (!host || host.includes(":") || /^[\d.]+$/.test(host)) return null;
+  const labels = host.split(".");
+  if (labels.length < 2) return null;
+  if (host.startsWith("www.") && labels.length > 2) return host.slice(4);
+  return "www." + host;
+}
+
 /** Builds the effective policy for a session. allowedDomains is DERIVED from examUrl + allowedLinks hosts. */
 export function assemblePolicy(ctx, exam, device, baseUrl) {
   const base = { ...exams.defaultPolicy(ctx), ...JSON.parse(exam.policy_json) };
@@ -31,7 +40,11 @@ export function assemblePolicy(ctx, exam, device, baseUrl) {
   const domains = new Set([origin.hostname.toLowerCase()]);
   for (const l of links) {
     try {
-      domains.add(new URL(l.url).hostname.toLowerCase());
+      const host = new URL(l.url).hostname.toLowerCase();
+      domains.add(host);
+      // Sites redirect between example.com and www.example.com; a link to either means both.
+      const twin = wwwTwin(host);
+      if (twin) domains.add(twin);
     } catch {
       /* validated on save; ignore */
     }

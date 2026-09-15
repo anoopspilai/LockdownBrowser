@@ -281,6 +281,24 @@ public sealed class AppState : ObservableObject
     /// <summary>true while the exam view shows an allowed resource rather than the exam page.</summary>
     public bool IsOnResourcePage => Screen == AppScreen.Exam && Web.IsOnResourcePage;
 
+    private string? _blockedNotice;
+    private DispatcherTimer? _blockedNoticeTimer;
+    /// <summary>"&lt;host&gt; is not an allowed link during this exam." — shown briefly under the status strip.</summary>
+    public string? BlockedNotice { get => _blockedNotice; private set => Set(ref _blockedNotice, value); }
+
+    private void ShowBlockedNotice(string host)
+    {
+        BlockedNotice = (string.IsNullOrEmpty(host) ? "That page" : host) + " is not an allowed link during this exam.";
+        _blockedNoticeTimer?.Stop();
+        _blockedNoticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+        _blockedNoticeTimer.Tick += (_, __) =>
+        {
+            _blockedNoticeTimer?.Stop();
+            BlockedNotice = null;
+        };
+        _blockedNoticeTimer.Start();
+    }
+
     public string OfflineText
     {
         get
@@ -430,6 +448,7 @@ public sealed class AppState : ObservableObject
             Events.Record(EventType.BlockedNavigation, EventSeverity.Medium,
                 new Dictionary<string, object?> { ["url"] = origin, ["reason"] = "bridge-foreign-origin" });
         Web.OnNavigated = () => Raise(nameof(IsOnResourcePage));
+        Web.OnTopLevelBlocked = ShowBlockedNotice;
         Web.ScriptDialogHandler = ShowScriptDialogAsync;
         Web.OnProcessFailed = (kind, fatal) =>
         {
@@ -1478,6 +1497,7 @@ public sealed class AppState : ObservableObject
     public void BackToExam()
     {
         if (Screen != AppScreen.Exam || _released) return;
+        BlockedNotice = null;
         Web.BackToExam();
         Raise(nameof(IsOnResourcePage));
     }

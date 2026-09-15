@@ -27,6 +27,19 @@ Creates exams `DEMO` (5 min, 5 questions, auto release), `MATH101` (60 min) and 
 (Demo Student) and `2001`–`2005`, and prints one `school` and one `byod` enrollment token (single use, 24 h).
 Enter a token on the client's first run; use a student code and exam code to start.
 
+### Allowed links (Resources)
+
+Links added to an exam appear in the app's **Resources** menu. How they behave:
+
+- A link opens inside the exam window. **Back to exam** returns to the exam with saved answers.
+- A link to `example.com` also allows `www.example.com`, because most sites redirect between the two.
+- Pages under the link's address work, including the page's own images and scripts. For a link to
+  `https://www.google.com/`, searching works.
+- Any other site, including other subdomains such as `mail.google.com`, is blocked, and the student
+  sees a short "not an allowed link" message.
+- To allow only one page, add the full page address, for example
+  `https://en.wikipedia.org/wiki/Algebra`.
+
 ### When a student cannot start an exam
 
 The app shows the server's message. The usual causes:
