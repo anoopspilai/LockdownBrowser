@@ -101,23 +101,23 @@
         <div class="buttons"><button type="button" id="addLink">Add link</button></div>
         <small class="muted">URLs must be https:// or a path on this server (e.g. /resources/formula-sheet.html). allowedDomains is derived automatically from these.</small>
 
-        <div class="group">Policy overrides (blank = use defaults)</div>
+        <div class="group">Exam rules (policy) <button type="button" class="info" data-info="policy" aria-label="What does “Exam rules” mean?" aria-expanded="false">i</button> <small class="muted">apply to students who start the exam after you save</small></div>
         <div class="cols">
-          <label class="row">Require SIP / Secure Boot <input type="checkbox" name="p_requireSIP"></label>
-          <label class="row">Require MDM <input type="checkbox" name="p_requireMDM"></label>
-          <label class="row">Require standard account <input type="checkbox" name="p_requireStandardAccount"></label>
-          <label class="row">Require AAC / kiosk (device must be kiosk-verified) <input type="checkbox" name="p_requireAAC"></label>
-          <label class="row">Block external display <input type="checkbox" name="p_blockExternalDisplay" checked></label>
-          <label class="row">Allow student release code <input type="checkbox" name="p_allowStudentReleaseCode" checked></label>
-          <label class="row">Allow clipboard <input type="checkbox" name="p_allowClipboard"></label>
-          <label class="row">Allow printing <input type="checkbox" name="p_allowPrinting"></label>
+          <label class="row"><span>Require SIP / Secure Boot <button type="button" class="info" data-info="requireSIP" aria-label="What does “Require SIP / Secure Boot” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_requireSIP"></label>
+          <label class="row"><span>Require MDM <button type="button" class="info" data-info="requireMDM" aria-label="What does “Require MDM” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_requireMDM"></label>
+          <label class="row"><span>Require standard account <button type="button" class="info" data-info="requireStandardAccount" aria-label="What does “Require standard account” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_requireStandardAccount"></label>
+          <label class="row"><span>Require AAC / kiosk (device must be kiosk-verified) <button type="button" class="info" data-info="requireAAC" aria-label="What does “Require AAC / kiosk” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_requireAAC"></label>
+          <label class="row"><span>Block external display <button type="button" class="info" data-info="blockExternalDisplay" aria-label="What does “Block external display” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_blockExternalDisplay" checked></label>
+          <label class="row"><span>Allow student release code <button type="button" class="info" data-info="allowStudentReleaseCode" aria-label="What does “Allow student release code” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_allowStudentReleaseCode" checked></label>
+          <label class="row"><span>Allow clipboard <button type="button" class="info" data-info="allowClipboard" aria-label="What does “Allow clipboard” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_allowClipboard"></label>
+          <label class="row"><span>Allow printing <button type="button" class="info" data-info="allowPrinting" aria-label="What does “Allow printing” mean?" aria-expanded="false">i</button></span> <input type="checkbox" name="p_allowPrinting"></label>
         </div>
         <div class="cols">
-          <label>External display action <select name="p_externalDisplayAction"><option>WARN</option><option>BLOCK_START</option><option>PAUSE</option><option>TERMINATE</option><option>FLAG</option></select></label>
-          <label>Heartbeat interval (2-120 s) <input type="number" name="p_heartbeatIntervalSeconds" min="2" max="120" value="10"></label>
-          <label>Event flush interval (1-300 s) <input type="number" name="p_eventFlushIntervalSeconds" min="1" max="300" value="5"></label>
-          <label>Offline grace (60-3600 s) <input type="number" name="p_offlineGraceSeconds" min="60" max="3600" value="600"></label>
-          <label>Min client version <input type="text" name="p_minClientVersion" value="0.1.0"></label>
+          <label><span>External display action <button type="button" class="info" data-info="externalDisplayAction" aria-label="What does “External display action” mean?" aria-expanded="false">i</button></span> <select name="p_externalDisplayAction"><option value="WARN">WARN: warn the student</option><option value="BLOCK_START">BLOCK_START: cannot start with one</option><option value="PAUSE">PAUSE: hide exam until removed</option><option value="TERMINATE">TERMINATE: end the exam</option><option value="FLAG">FLAG: only report it</option></select></label>
+          <label><span>Heartbeat interval (2-120 s) <button type="button" class="info" data-info="heartbeatIntervalSeconds" aria-label="What does “Heartbeat interval” mean?" aria-expanded="false">i</button></span> <input type="number" name="p_heartbeatIntervalSeconds" min="2" max="120" value="10"></label>
+          <label><span>Event flush interval (1-300 s) <button type="button" class="info" data-info="eventFlushIntervalSeconds" aria-label="What does “Event flush interval” mean?" aria-expanded="false">i</button></span> <input type="number" name="p_eventFlushIntervalSeconds" min="1" max="300" value="5"></label>
+          <label><span>Offline grace (60-3600 s) <button type="button" class="info" data-info="offlineGraceSeconds" aria-label="What does “Offline grace” mean?" aria-expanded="false">i</button></span> <input type="number" name="p_offlineGraceSeconds" min="60" max="3600" value="600"></label>
+          <label><span>Min client version <button type="button" class="info" data-info="minClientVersion" aria-label="What does “Min client version” mean?" aria-expanded="false">i</button></span> <input type="text" name="p_minClientVersion" value="0.1.0"></label>
         </div>
         <div class="buttons">
           <button type="submit" class="primary">Save exam</button>
@@ -229,6 +229,11 @@
     </div>
   </section>
 </main>
+
+<div id="infoPop" class="info-pop" role="dialog" aria-modal="false" aria-labelledby="infoPopTitle" hidden>
+  <div class="info-pop-h"><strong id="infoPopTitle"></strong><button type="button" class="info-close" aria-label="Close">×</button></div>
+  <div id="infoPopBody"></div>
+</div>
 
 <script src="/admin/admin.js"></script>
 </body>

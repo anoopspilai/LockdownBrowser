@@ -86,3 +86,27 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
 .token-once { background: var(--amber-soft); border: 1px solid #f0d48a; border-radius: 6px; padding: 10px 12px; margin-top: 8px; font-size: 13px; }
 .token-once code { font-size: 13px; background: #fff; }
+
+/* ---- Information buttons on exam rules ---- */
+button.info {
+  display: inline-grid; place-items: center; width: 17px; height: 17px; margin-left: 6px; padding: 0;
+  border: 1px solid var(--accent); border-radius: 50%; background: var(--surface); color: var(--accent);
+  font: italic 700 11px/1 Georgia, "Times New Roman", serif; cursor: pointer; vertical-align: 1px;
+}
+button.info:hover, button.info[aria-expanded="true"] { background: var(--accent); color: #fff; }
+button.info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.info-pop {
+  position: absolute; z-index: 50; width: min(380px, calc(100vw - 24px));
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(16,24,40,.18); padding: 12px 14px; font-size: 13px; line-height: 1.55;
+}
+.info-pop-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.info-pop p { margin: 0 0 8px; }
+.info-pop p:last-child { margin-bottom: 0; }
+.info-pop ul { margin: 0 0 8px; padding-left: 18px; }
+.info-pop li { margin-bottom: 3px; }
+.info-pop .tip { background: var(--accent-soft); border-radius: 6px; padding: 6px 8px; }
+.info-pop .warn { background: var(--amber-soft); border-radius: 6px; padding: 6px 8px; }
+button.info-close { border: 0; background: transparent; font-size: 18px; line-height: 1; color: var(--muted); cursor: pointer; padding: 0 2px; }
+button.info-close:hover { color: var(--text); }
+

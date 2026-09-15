@@ -311,3 +311,16 @@ test("allowed link www twin", async () => {
   assert.equal(wwwTwin("localhost"), null);
   assert.equal(wwwTwin("www.com"), "www.www.com");
 });
+
+test("stale: readiness screen gets a grace period, a running exam does not", async () => {
+  const { isStale, NOT_STARTED_GRACE_MS } = await import("../src/services/sessions.js");
+  const started = Date.parse("2026-09-15T10:00:00Z");
+  const policy_json = JSON.stringify({ heartbeatIntervalSeconds: 10 });
+  const notStarted = { status: "active", started_at: new Date(started).toISOString(), last_heartbeat: null, policy_json };
+  assert.equal(isStale(notStarted, started + 60_000), false, "1 minute on the readiness screen is not stale");
+  assert.equal(isStale(notStarted, started + NOT_STARTED_GRACE_MS + 1000), true, "more than 5 minutes without starting is stale");
+  const running = { ...notStarted, last_heartbeat: new Date(started).toISOString() };
+  assert.equal(isStale(running, started + 30_000), false, "30 s after a heartbeat at 10 s interval is fine");
+  assert.equal(isStale(running, started + 36_000), true, "3 missed heartbeats plus 5 s is stale");
+  assert.equal(isStale({ ...running, status: "released" }, started + 999_999), false, "only active sessions go stale");
+});

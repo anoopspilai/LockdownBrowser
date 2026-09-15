@@ -259,12 +259,14 @@ export function answersOf(ctx, sessionId) {
 }
 
 const HEARTBEAT_STALE_MULTIPLIER = 3;
+/** Heartbeats only begin when the student presses Start Exam; the readiness screen comes first. */
+export const NOT_STARTED_GRACE_MS = 5 * 60_000;
 
-export function isStale(row) {
+export function isStale(row, now = Date.now()) {
   if (row.status !== "active") return false;
+  if (!row.last_heartbeat) return now - Date.parse(row.started_at) > NOT_STARTED_GRACE_MS;
   const interval = clampInt(policyOf(row).heartbeatIntervalSeconds, 2, 120, 10);
-  const last = Date.parse(row.last_heartbeat || row.started_at);
-  return Date.now() - last > HEARTBEAT_STALE_MULTIPLIER * interval * 1000 + 5000;
+  return now - Date.parse(row.last_heartbeat) > HEARTBEAT_STALE_MULTIPLIER * interval * 1000 + 5000;
 }
 
 /** Periodic sweep: mark active sessions with > 3 missed beats as stale and raise an incident once. */

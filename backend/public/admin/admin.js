@@ -503,4 +503,151 @@
     try { const me = await api("GET", "/api/v1/auth/me"); showApp(me.user); }
     catch { showLogin(); }
   })();
+
+  // ---- EXAM RULE EXPLANATIONS (information buttons) --------------------------------------------
+  // Plain-English help for every exam rule. Rendered with DOM methods (no HTML strings).
+  const INFO = {
+    policy: {
+      title: "Exam rules",
+      p: ["These rules control how the Avaibe Exam app locks the computer for this exam.",
+          "They are saved with the exam. A student who starts the exam gets the rules as they were at that moment, so changes only affect students who start after you save."],
+      tip: "For most exams the defaults are fine: block extra screens, no copy and paste, no printing."
+    },
+    requireSIP: {
+      title: "Require SIP / Secure Boot",
+      p: ["A built-in protection must be switched on. On a Mac it is System Integrity Protection (SIP). On Windows it is Secure Boot. Both stop the core of the operating system from being changed or replaced.",
+          "They are on by default on almost every computer. When ticked, a computer that has it switched off cannot start the exam."],
+      tip: "Tick for school computers. Leave off for students' own laptops unless you have checked them.",
+      warn: "The app checks this itself, so a student with administrator rights could fake it."
+    },
+    requireMDM: {
+      title: "Require MDM",
+      p: ["The computer must be managed by the school's device management system (MDM), such as Microsoft Intune or Jamf.",
+          "A managed computer is set up and controlled by school IT, which makes it much harder to tamper with."],
+      tip: "Tick only when every exam computer is school-managed.",
+      warn: "Students' own laptops are not managed, so they will not be able to start."
+    },
+    requireStandardAccount: {
+      title: "Require standard account",
+      p: ["The student must be signed in to the computer with a normal account, not an administrator account.",
+          "Administrator accounts can change system settings and force programs to close, which makes cheating easier."],
+      tip: "Tick for school computers and high-stakes exams.",
+      warn: "Students' own laptops usually use administrator accounts, so they would be blocked."
+    },
+    requireAAC: {
+      title: "Require AAC / kiosk",
+      p: ["The exam only starts on computers where the operating system itself enforces the lockdown: Apple's Automatic Assessment Configuration (AAC) on Mac, or Windows Assigned Access (kiosk mode).",
+          "This is the strongest protection. The server does not trust the app for this: an administrator must mark each computer as “Kiosk verified” in the Devices tab."],
+      tip: "Use for high-stakes exams on school computers that IT has set up in kiosk mode.",
+      warn: "The Mac app does not have Apple's approval for AAC yet, so with this ticked, exams will not start on Macs."
+    },
+    blockExternalDisplay: {
+      title: "Block external display",
+      p: ["Extra monitors or TVs are not allowed during the exam.",
+          "While the exam is locked, every extra screen is covered in black. If a screen is connected during the exam, the app does what you choose in External display action."],
+      tip: "Leave ticked. Untick only if students need a second screen, for example for accessibility.",
+      warn: "When unticked, extra screens are not covered and no action is taken."
+    },
+    allowStudentReleaseCode: {
+      title: "Allow student release code",
+      p: ["Lets you unlock a student with a 6-digit code. In the Live tab, press Release code, then tell the student the code. They type it on their screen.",
+          "Each code works once, only for that student's computer, and only for 60 seconds."],
+      tip: "Handy when you are standing next to the student.",
+      warn: "When off, the student cannot type a code. The only way to unlock them is Remote release in the Live tab."
+    },
+    allowClipboard: {
+      title: "Allow clipboard",
+      p: ["Allows copy and paste inside the exam: Ctrl+C and Ctrl+V on Windows, Cmd+C and Cmd+V on Mac."],
+      tip: "Leave off, so students cannot paste answers they prepared before the exam."
+    },
+    allowPrinting: {
+      title: "Allow printing",
+      p: ["Allows printing the exam page."],
+      tip: "Leave off, so the questions cannot be printed and taken away."
+    },
+    externalDisplayAction: {
+      title: "External display action",
+      p: ["What happens when an extra screen is connected. Only used when Block external display is ticked."],
+      list: ["WARN: the student sees a warning and you see an alert. The exam continues.",
+             "BLOCK_START: the exam cannot start while an extra screen is connected. If one is connected later, the same as WARN.",
+             "PAUSE: the exam is hidden until the screen is unplugged. The timer keeps running.",
+             "TERMINATE: the exam is submitted at once and the screen stays locked until you release the student.",
+             "FLAG: nothing happens on the student's screen. It is only recorded for you to review."],
+      tip: "BLOCK_START is a good default: it stops the problem before the exam begins."
+    },
+    heartbeatIntervalSeconds: {
+      title: "Heartbeat interval",
+      p: ["How often the app tells the server “I am still here and still locked”. Between 2 and 120 seconds.",
+          "It also sets how quickly your actions reach the student: Remote release, Warn and Terminate arrive at the next heartbeat.",
+          "If the app misses 3 heartbeats in a row during the exam, the Live tab marks the student as stale. A student still on the readiness screen, before pressing Start Exam, gets 5 minutes."],
+      tip: "10 seconds suits most exams.",
+      warn: "Lower is faster but puts more load on the server: 1,000 students every 10 seconds is about 100 requests per second."
+    },
+    eventFlushIntervalSeconds: {
+      title: "Event flush interval",
+      p: ["The app keeps a log of security events, such as a blocked shortcut, a switch to another app, or a screen being connected. This is how often it sends that log to the server. Between 1 and 300 seconds.",
+          "Lower means the events show up in the Events timeline sooner. Some important events, such as an extra screen, are sent immediately anyway."],
+      tip: "5 seconds suits most exams."
+    },
+    offlineGraceSeconds: {
+      title: "Offline grace",
+      p: ["What happens when a computer loses its connection to the server.",
+          "If the app cannot reach the server for this long, it unlocks the student by itself, so nobody is trapped during a network outage. It sends the student's work when the connection comes back. Between 60 and 3600 seconds (1 hour)."],
+      tip: "600 seconds (10 minutes) is a good balance.",
+      warn: "Too short makes it easy to escape: a student could unplug the network and wait. Too long keeps students locked if the network really fails."
+    },
+    minClientVersion: {
+      title: "Min client version",
+      p: ["The oldest version of the Avaibe Exam app allowed to take this exam, for example 0.1.0.",
+          "After you install a new version of the app on the computers, raise this so anyone still on an old version must update before starting."],
+      warn: "The app reports its own version, so treat this as a guide rather than a security control."
+    }
+  };
+
+  const infoPop = $("infoPop");
+  let infoOpenFor = null;
+  function closeInfo(returnFocus) {
+    if (!infoOpenFor) return;
+    const btn = infoOpenFor;
+    infoOpenFor = null;
+    infoPop.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    if (returnFocus) btn.focus();
+  }
+  function openInfo(btn) {
+    const data = INFO[btn.dataset.info];
+    if (!data) return;
+    if (infoOpenFor) closeInfo(false);
+    $("infoPopTitle").textContent = data.title;
+    const body = clear($("infoPopBody"));
+    for (const para of data.p || []) body.appendChild(h("p", null, para));
+    if (data.list) body.appendChild(h("ul", null, ...data.list.map((t) => h("li", null, t))));
+    if (data.tip) body.appendChild(h("p", { class: "tip" }, data.tip));
+    if (data.warn) body.appendChild(h("p", { class: "warn" }, data.warn));
+    infoPop.hidden = false;
+    const r = btn.getBoundingClientRect();
+    const width = infoPop.offsetWidth;
+    const left = Math.max(12, Math.min(window.scrollX + r.left - 12, window.scrollX + document.documentElement.clientWidth - width - 12));
+    infoPop.style.left = left + "px";
+    const height = infoPop.offsetHeight;
+    const roomBelow = document.documentElement.clientHeight - r.bottom;
+    const above = roomBelow < height + 16 && r.top > height + 16;
+    infoPop.style.top = (window.scrollY + (above ? r.top - height - 8 : r.bottom + 8)) + "px";
+    btn.setAttribute("aria-expanded", "true");
+    infoOpenFor = btn;
+    infoPop.querySelector(".info-close").focus();
+  }
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button.info");
+    if (btn) {
+      e.preventDefault();   // never toggle the checkbox in the same label
+      e.stopPropagation();
+      if (infoOpenFor === btn) closeInfo(true); else openInfo(btn);
+      return;
+    }
+    if (e.target.closest(".info-close")) { closeInfo(true); return; }
+    if (infoOpenFor && !infoPop.contains(e.target)) closeInfo(false);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeInfo(true); });
+  window.addEventListener("resize", () => closeInfo(false));
 })();
