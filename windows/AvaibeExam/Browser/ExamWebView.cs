@@ -26,6 +26,12 @@ public sealed class ScriptDialogRequest
     public string Kind { get; }
     public string Message { get; }
     public string? DefaultText { get; }
+    /// <summary>Native (app-owned) dialogs only: custom title and button texts. Null for page dialogs.</summary>
+    public string? Title { get; init; }
+    public string? OkText { get; init; }
+    public string? CancelText { get; init; }
+    /// <summary>Native confirmations of an irreversible step focus Cancel, so Enter never confirms by accident.</summary>
+    public bool FocusCancel { get; init; }
     public bool HasCancel => Kind != "alert";
     public bool HasInput => Kind == "prompt";
 }
@@ -55,6 +61,11 @@ public sealed class ScriptDialogResult
 /// are always blocked; about:blank only before the first load. Subresources (fetch/XHR/WS/images/
 /// scripts/frames) are refused with a 403 unless their host is in allowedDomains (W-12).
 /// The bridge accepts messages only from documents whose origin equals the exam origin (W-05).
+///
+/// External-website exams (§11.3, policy.examMode == "external"): navigation is allowed to https hosts
+/// matching policy.allowedSites (or an allowed link); subresources are not filtered; allowed popups
+/// load in the same view; the bridge is off (no shim, no web messages, no native-to-web scripts);
+/// "Back to exam" returns to the start address.
 ///
 /// Lifecycle: CreateControl(policy, mode, sessionId) -> (host in the visual tree) -> InitializeAsync()
 /// -> Load(url) -> [NavigateToAllowedLink / BackToExam] -> ClearBrowsingDataAsync() -> Teardown().
@@ -191,8 +202,16 @@ public sealed class ExamWebView
         _topLevelOnExam = true;
     }
 
-    /// <summary>The address "Back to exam" navigates to.</summary>
-    internal string? BackToExamTarget => _lastExamPageUrl ?? ExamPageUrl();
+    /// <summary>§11.3: the exam runs on a third-party website (policy.examMode == "external").</summary>
+    public bool IsExternalExam => _policy.IsExternalExam;
+
+    /// <summary>
+    /// The address "Back to exam" navigates to: for questions exams the real exam page; for external
+    /// exams always the start address (§11.3), never /exam/&lt;sessionId&gt;.
+    /// </summary>
+    internal string? BackToExamTarget => IsExternalExam
+        ? _examUrl?.AbsoluteUri
+        : _lastExamPageUrl ?? ExamPageUrl();
 
     /// <summary>An allowed top-level navigation is starting: subresource filtering follows the page being opened.</summary>
     internal void NoteTopLevelNavigation(Uri target)
@@ -203,8 +222,11 @@ public sealed class ExamWebView
         }
     }
 
-    /// <summary>Subresource decision: strict host allow-list on the exam page; anything on an allowed resource page.</summary>
-    internal bool IsSubresourceAllowed(Uri u) => !_topLevelOnExam || IsHostAllowed(u.Host);
+    /// <summary>
+    /// Subresource decision: strict host allow-list on the exam page; anything on an allowed resource
+    /// page. External exams (§11.3) never filter subresources — vendor pages load from CDNs.
+    /// </summary>
+    internal bool IsSubresourceAllowed(Uri u) => IsExternalExam || !_topLevelOnExam || IsHostAllowed(u.Host);
 
     /// <summary>Creates the WPF control (must be added to the visual tree before InitializeAsync completes).</summary>
     public WebView2 CreateControl(Policy policy, LockdownMode mode, string sessionId)
@@ -229,7 +251,8 @@ public sealed class ExamWebView
             DefaultBackgroundColor = System.Drawing.Color.Black,
         };
         Control = control;
-        Log.Info(LogCat, "WebView2 control created (mode=" + mode.Wire() + ", devTools=" + policy.AllowDevTools + ", links=" + _linkPrefixes.Count + ")");
+        Log.Info(LogCat, "WebView2 control created (mode=" + mode.Wire() + ", examMode=" + policy.ExamMode + ", devTools=" + policy.AllowDevTools +
+                         ", links=" + _linkPrefixes.Count + ", sites=" + policy.AllowedSites.Count + ")");
         return control;
     }
 
@@ -266,7 +289,8 @@ public sealed class ExamWebView
         s.IsZoomControlEnabled = false;
         s.AreBrowserAcceleratorKeysEnabled = false;    // Ctrl+P/F/R, F5, F12, ... (editing keys unaffected)
         s.IsBuiltInErrorPageEnabled = true;
-        s.IsWebMessageEnabled = true;
+        // §11.3: the bridge is off for external exams (a third-party page must not reach native code).
+        s.IsWebMessageEnabled = !IsExternalExam;
         s.IsScriptEnabled = true;
 
         // Newer settings: the SDK is newer than some installed Evergreen runtimes, and accessing a
@@ -299,18 +323,36 @@ public sealed class ExamWebView
         core.ProcessFailed += OnProcessFailedHandler;
         core.WindowCloseRequested += OnWindowCloseRequested;
 
-        // W-12: every request (documents, frames, scripts, XHR, fetch, WebSocket, images, media, ...)
-        // passes through OnWebResourceRequested, which answers 403 for hosts outside allowedDomains.
-        // The 3-argument overload (SDK 1.0.2365+) also covers requests issued by iframes and
-        // workers; the 2-argument one is documented as "does not behave as expected for iframes".
-        core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All, CoreWebView2WebResourceRequestSourceKinds.All);
-        core.WebResourceRequested += OnWebResourceRequested;
+        if (IsExternalExam)
+        {
+            // §11.3: external exams do not filter subresources (vendor CDNs), inject no bootstrap
+            // script and never run native-to-web scripts in the vendor page. Navigation and frames
+            // stay restricted by OnNavigationStarting / OnFrameNavigationStarting.
+            Bridge.ScriptExecutor = null;
+            if (!_policy.AllowPrinting)
+            {
+                // Not the bridge: a one-line guard so the vendor page's own print button cannot open
+                // the print dialog (WebView2 shows it for window.print()). Best effort; Ctrl+P is
+                // blocked by the keyboard hook as well.
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(PrintBlockScript);
+            }
+            Log.Info(LogCat, "External exam: bridge off, subresources not filtered, printing " + (_policy.AllowPrinting ? "allowed" : "blocked"));
+        }
+        else
+        {
+            // W-12: every request (documents, frames, scripts, XHR, fetch, WebSocket, images, media, ...)
+            // passes through OnWebResourceRequested, which answers 403 for hosts outside allowedDomains.
+            // The 3-argument overload (SDK 1.0.2365+) also covers requests issued by iframes and
+            // workers; the 2-argument one is documented as "does not behave as expected for iframes".
+            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All, CoreWebView2WebResourceRequestSourceKinds.All);
+            core.WebResourceRequested += OnWebResourceRequested;
 
-        // Note: WebView2 injects document-created scripts into EVERY frame; there is no
-        // main-frame-only option in this SDK. The origin check in OnWebMessageReceived is the
-        // real control (W-05).
-        await core.AddScriptToExecuteOnDocumentCreatedAsync(WebMessageBridge.ShimScript(LockdownMode, _policy.AllowPrinting));
-        Bridge.ScriptExecutor = js => core.ExecuteScriptAsync(js);
+            // Note: WebView2 injects document-created scripts into EVERY frame; there is no
+            // main-frame-only option in this SDK. The origin check in OnWebMessageReceived is the
+            // real control (W-05).
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(WebMessageBridge.ShimScript(LockdownMode, _policy.AllowPrinting));
+            Bridge.ScriptExecutor = js => core.ExecuteScriptAsync(js);
+        }
 
         _initialized = true;
         Log.Info(LogCat, "CoreWebView2 ready (runtime " + environment.BrowserVersionString + ")");
@@ -331,7 +373,8 @@ public sealed class ExamWebView
 
     /// <summary>
     /// True when the exam URL may be loaded at all: http(s), a host, and the host inside
-    /// policy.allowedDomains (the server derives allowedDomains from examUrl, §10.3). Checked
+    /// policy.allowedDomains (the server derives allowedDomains from examUrl, §10.3) — or, for an
+    /// external exam, inside policy.allowedSites (§11.2 puts the start host first). Checked
     /// BEFORE lockdown engages so a refused URL never leaves the student locked (W-30).
     /// </summary>
     public static bool IsExamUrlAcceptable(Uri url, Policy policy, out string reason)
@@ -346,6 +389,16 @@ public sealed class ExamWebView
             return false;
         }
         var host = url.Host.ToLowerInvariant();
+        if (policy.IsExternalExam)
+        {
+            if (url.OriginalString.Contains("..", StringComparison.Ordinal)) { reason = "dot-segments"; return false; }
+            foreach (var pattern in policy.AllowedSites)
+            {
+                if (HostMatches(host, pattern)) { reason = string.Empty; return true; }
+            }
+            reason = "host-not-in-allowedSites";
+            return false;
+        }
         foreach (var pattern in policy.AllowedDomains)
         {
             if (HostMatches(host, pattern)) { reason = string.Empty; return true; }
@@ -525,7 +578,17 @@ public sealed class ExamWebView
         return u.Scheme + "://" + u.Host.ToLowerInvariant() + ":" + u.Port + u.PathAndQuery;
     }
 
-    /// <summary>§10.3 navigation rule for top-level and frame navigations.</summary>
+    /// <summary>True for http(s) on localhost / a loopback address (development servers).</summary>
+    private static bool IsLoopbackHost(Uri u)
+    {
+        return u.IsLoopback || string.Equals(u.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// §10.3 navigation rule for top-level and frame navigations. External exams (§11.3): https (http
+    /// only for localhost/loopback) to a host matching one policy.allowedSites pattern, or the
+    /// allowed-link prefix rule.
+    /// </summary>
     public bool IsNavigationAllowed(string? uriText, out string reason)
     {
         if (string.IsNullOrEmpty(uriText)) { reason = "empty"; return false; }
@@ -542,14 +605,35 @@ public sealed class ExamWebView
         if (scheme != "http" && scheme != "https") { reason = "scheme-" + scheme; return false; }
         if (!string.IsNullOrEmpty(u.UserInfo)) { reason = "userinfo"; return false; }
         if (uriText.Contains("..", StringComparison.Ordinal)) { reason = "dot-segments"; return false; }
+        if (IsExternalExam)
+        {
+            if (scheme == "https" || IsLoopbackHost(u))
+            {
+                var host = u.Host.ToLowerInvariant();
+                foreach (var pattern in _policy.AllowedSites)
+                {
+                    if (HostMatches(host, pattern)) { reason = string.Empty; return true; }
+                }
+            }
+            if (MatchesAllowedLink(u)) { reason = string.Empty; return true; }
+            reason = "site-not-allowed";
+            return false;
+        }
         if (_examOrigin == null) { reason = "no-exam-origin"; return false; }
         if (OriginOf(u) == _examOrigin) { reason = string.Empty; return true; }
+        if (MatchesAllowedLink(u)) { reason = string.Empty; return true; }
+        reason = "origin-not-allowed";
+        return false;
+    }
+
+    /// <summary>§10.3 allowed-link prefix rule (scheme/host normalised, explicit port).</summary>
+    private bool MatchesAllowedLink(Uri u)
+    {
         var candidate = NormalizedPrefix(u);
         foreach (var prefix in _linkPrefixes)
         {
-            if (candidate.StartsWith(prefix, StringComparison.Ordinal)) { reason = string.Empty; return true; }
+            if (candidate.StartsWith(prefix, StringComparison.Ordinal)) return true;
         }
-        reason = "origin-not-allowed";
         return false;
     }
 
@@ -644,9 +728,19 @@ public sealed class ExamWebView
         if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var nu)) NoteTopLevelNavigation(nu);
     }
 
-    /// <summary>W-04: frames obey the same rule as the top-level document.</summary>
+    /// <summary>Replaces window.print with a no-op in every frame (external exams without printing).</summary>
+    internal const string PrintBlockScript =
+        "(function(){try{Object.defineProperty(window,'print',{value:function(){},writable:false,configurable:false});}catch(e){window.print=function(){};}})();";
+
+    /// <summary>Empty frames ("about:blank", "about:srcdoc") are inert and common in sign-in and editor pages.</summary>
+    internal static bool IsInertFrameUrl(string? uriText) =>
+        string.Equals(uriText, "about:blank", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(uriText, "about:srcdoc", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>W-04: frames obey the same rule as the top-level document (empty frames excepted, as on macOS).</summary>
     private void OnFrameNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
+        if (IsInertFrameUrl(e.Uri)) return;
         if (!IsNavigationAllowed(e.Uri, out var reason))
         {
             e.Cancel = true;
@@ -660,7 +754,8 @@ public sealed class ExamWebView
         if (e.IsSuccess)
         {
             _firstNavigationSucceeded = true;
-            if (!string.IsNullOrEmpty(source) && _examOrigin != null &&
+            // Questions exams only: external exams always go back to the start address (§11.3).
+            if (!IsExternalExam && !string.IsNullOrEmpty(source) && _examOrigin != null &&
                 Uri.TryCreate(source, UriKind.Absolute, out var u) && OriginOf(u) == _examOrigin)
             {
                 _lastExamPageUrl = source;
@@ -676,9 +771,27 @@ public sealed class ExamWebView
 
     private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
     {
-        // W-16: never create a new window and never retarget — popups are simply refused.
+        // W-16: never create a new window. Questions exams refuse every popup.
         e.Handled = true;
-        Block(e.Uri, "popup-blocked");
+        string? uri = null;
+        try { uri = e.Uri; } catch { /* ignore */ }
+        if (uri != null && IsPopupLoadedInPlace(uri))
+        {
+            // §11.3: external exams load an allowed popup (vendor sign-in flows) in the same view;
+            // OnNavigationStarting checks the navigation again.
+            Log.Info(LogCat, "Popup opened in the exam view: " + Redact(uri));
+            try { Control?.CoreWebView2?.Navigate(uri); } catch (Exception ex) { Log.Warn(LogCat, "Navigate failed: " + ex.GetType().Name); }
+            return;
+        }
+        Block(uri, "popup-blocked");
+    }
+
+    /// <summary>Popup decision: only external exams, and only when the target passes the navigation rule.</summary>
+    internal bool IsPopupLoadedInPlace(string? uriText)
+    {
+        if (!IsExternalExam) return false;
+        if (string.Equals(uriText, "about:blank", StringComparison.OrdinalIgnoreCase)) return false;
+        return IsNavigationAllowed(uriText, out _);
     }
 
     private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
@@ -745,6 +858,8 @@ public sealed class ExamWebView
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        // §11.3: bridge off for external exams — every web message is ignored.
+        if (IsExternalExam) return;
         // W-05: only the exam origin may talk to the bridge (frames of other origins get the shim
         // too, because document-created scripts run in every frame).
         string? source = null;

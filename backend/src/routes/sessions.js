@@ -73,6 +73,7 @@ export function registerSessionRoutes(router, ctx) {
 
 export function questionsPayload(ctx, session) {
   const exam = exams.getById(ctx, session.exam_id);
+  if (exam?.kind === "external") throw new HttpError(404, "NOT_A_QUESTIONS_EXAM", "This exam runs on an external website");
   return {
     code: exam.code,
     title: exam.title,

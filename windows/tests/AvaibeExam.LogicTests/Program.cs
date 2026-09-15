@@ -57,6 +57,89 @@ web.NoteTopLevelNavigation(new Uri("https://www.google.com/"));
 Check(web.IsSubresourceAllowed(new Uri("https://www.gstatic.com/x.js")), "Google page: its own assets load");
 web.NoteTopLevelNavigation(new Uri("http://localhost:4000/exam/sess_0123456789abcdef0123456789abcdef"));
 Check(!web.IsSubresourceAllowed(new Uri("https://www.gstatic.com/x.js")), "back on exam page: strict again");
+Check(!web.IsExternalExam && !web.IsPopupLoadedInPlace("http://localhost:4000/exam/x"), "questions exam: popups always blocked, even to the exam origin");
+
+Section("5. External exams");
+const string extStart = "https://www.testwise.com/";
+const string extSession = "sess_fedcba9876543210fedcba9876543210";
+var extPolicy = new Policy
+{
+    ExamMode = "EXTERNAL",
+    AllowedSites = new List<string> { "www.testwise.com", "testwise.com", "*.testwise.com", "accounts.google.com" },
+}.Normalized();
+Check(extPolicy.IsExternalExam && extPolicy.ExamMode == "external", "examMode external (any case) -> external");
+var ext = new ExamWebView();
+ext.ConfigureLinks(extPolicy);
+ext.SetExamForTest(new Uri(extStart), extSession);
+bool ExtNav(string u) => ext.IsNavigationAllowed(u, out _);
+Check(ExamWebView.IsExamUrlAcceptable(new Uri(extStart), extPolicy, out var extWhy), "start URL acceptable under the external rule " + extWhy);
+Check(ExtNav(extStart), "start page allowed");
+Check(ExtNav("https://app.testwise.com/x"), "subdomain via *.testwise.com allowed");
+Check(ExtNav("https://accounts.google.com/o/oauth2"), "Google sign-in allowed");
+Check(!ExtNav("https://mail.google.com/"), "other Google host blocked");
+Check(!ExtNav("https://testwise.com.evil.com/"), "look-alike host blocked");
+Check(!ExtNav("http://www.testwise.com/"), "plain http blocked for a public host");
+Check(!ExtNav("https://user:pw@www.testwise.com/"), "userinfo blocked");
+Check(!ExtNav("javascript:alert(1)") && !ExtNav("data:text/html,x") && !ExtNav("blob:https://www.testwise.com/1") && !ExtNav("file:///C:/x"), "javascript:/data:/blob:/file: blocked");
+Check(!ExtNav("https://www.testwise.com/a/../b"), "dot segments blocked");
+Check(ext.IsSubresourceAllowed(new Uri("https://cdn.anything.net/x.js")), "subresources not filtered");
+Check(ext.BackToExamTarget == extStart, "Back to exam -> start URL: " + ext.BackToExamTarget);
+Check(ext.IsPopupLoadedInPlace("https://accounts.google.com/o/oauth2"), "allowed popup loads in the same view");
+Check(!ext.IsPopupLoadedInPlace("https://evil.example/") && !ext.IsPopupLoadedInPlace("about:blank"), "other popups blocked");
+
+var wildPolicy = new Policy { ExamMode = "external", AllowedSites = new List<string> { "*.com", "*.co.uk", "*.testwise.com" } };
+var wild = new ExamWebView();
+wild.ConfigureLinks(wildPolicy);   // not normalised on purpose: the matcher itself must refuse public-suffix wildcards
+wild.SetExamForTest(new Uri(extStart), extSession);
+Check(!wild.IsNavigationAllowed("https://example.com/", out _) && !wild.IsNavigationAllowed("https://bbc.co.uk/", out _), "*.com / *.co.uk never allow example.com / bbc.co.uk");
+Check(!ExamWebView.IsExamUrlAcceptable(new Uri("https://example.com/"), wildPolicy, out _), "*.com never accepts example.com as a start URL");
+
+var linkExtPolicy = new Policy { ExamMode = "external", AllowedSites = new List<string> { "www.testwise.com" },
+    AllowedLinks = new List<AllowedLink> { new AllowedLink { Label = "Help", Url = "https://help.vendor.net/guide" } } }.Normalized();
+var linkExt = new ExamWebView();
+linkExt.ConfigureLinks(linkExtPolicy);
+linkExt.SetExamForTest(new Uri(extStart), extSession);
+Check(linkExt.IsNavigationAllowed("https://help.vendor.net/guide/page2", out _) && !linkExt.IsNavigationAllowed("https://help.vendor.net/other", out _), "allowed-link prefix rule still applies in external mode");
+Check(!ExamWebView.IsExamUrlAcceptable(new Uri("https://evil.example/"), linkExtPolicy, out var badWhy) && badWhy == "host-not-in-allowedSites", "start URL outside allowedSites refused: " + badWhy);
+var localExt = new Policy { ExamMode = "external", AllowedSites = new List<string> { "localhost" } }.Normalized();
+Check(ExamWebView.IsExamUrlAcceptable(new Uri("http://localhost:4701/vendor"), localExt, out _), "http allowed for localhost start URL");
+
+var junk = new List<string> { "https://x.com", "x.com/path", "x.com:443", "user@x.com", "a b.com", "*.com", "*.co.uk", "*x.com", "x.*.com", "*", "", "   ", "-bad.com", "WWW.Testwise.COM", "www.testwise.com", "*.Vendor.net" };
+for (var i = 0; i < 80; i++) junk.Add("site" + i + ".example.org");
+var normalized = new Policy { AllowedSites = junk }.Normalized();
+Check(normalized.AllowedSites.Count == Policy.MaxAllowedSites, "allowedSites capped at 50: " + normalized.AllowedSites.Count);
+Check(normalized.AllowedSites[0] == "www.testwise.com" && normalized.AllowedSites[1] == "*.vendor.net", "junk dropped, lower-cased, de-duplicated: " + string.Join(",", normalized.AllowedSites.Take(3)));
+Check(!normalized.AllowedSites.Any(s => s.Contains('/') || s.Contains(':') || s.Contains('@') || s.Contains(' ') || s == "*.com" || s == "*.co.uk"), "no scheme/path/port/userinfo/public-suffix entries survive");
+var missingMode = System.Text.Json.JsonSerializer.Deserialize<Policy>("{\"allowedSites\":null}")!.Normalized();
+Check(!missingMode.IsExternalExam && missingMode.AllowedSites.Count == 0, "missing examMode -> questions, null allowedSites -> empty");
+Check(!new Policy { ExamMode = "quiz" }.Normalized().IsExternalExam, "unknown examMode -> questions");
+Check(!Policy.ConservativeDefault.IsExternalExam && Policy.ConservativeDefault.AllowedSites.Count == 0, "conservative default stays questions with no sites");
+
+// Questions mode keeps its behaviour with allowedSites present (they are ignored there).
+var qPolicy = new Policy { AllowedDomains = new List<string> { "localhost" }, AllowedSites = new List<string> { "*.testwise.com" } }.Normalized();
+var q = new ExamWebView();
+q.ConfigureLinks(qPolicy);
+q.SetExamForTest(new Uri("http://localhost:4000/exam/launch?lt=abc"), extSession);
+Check(!q.IsNavigationAllowed("https://app.testwise.com/", out _) && q.IsNavigationAllowed("http://localhost:4000/exam/" + extSession, out _), "questions mode: allowedSites ignored, exam origin allowed");
+Check(q.BackToExamTarget == "http://localhost:4000/exam/" + extSession && !q.IsSubresourceAllowed(new Uri("https://cdn.anything.net/x.js")), "questions mode: Back to exam and subresource filtering unchanged");
+
+// "I have finished" decision logic.
+Check(AppState.CanStudentFinish(true, true, false, false, false, false, false, false), "finish enabled on a running external exam");
+Check(!AppState.CanStudentFinish(false, true, false, false, false, false, false, false), "finish never for questions exams");
+Check(!AppState.CanStudentFinish(true, true, false, false, false, true, false, false) && !AppState.CanStudentFinish(true, true, false, false, true, false, false, false), "finish disabled while submitting and after success");
+Check(!AppState.CanStudentFinish(true, true, false, false, false, false, true, false) && !AppState.CanStudentFinish(true, true, false, false, false, false, false, true), "finish disabled while confirming or behind an overlay");
+Check(!AppState.CanStudentFinish(true, true, true, false, false, false, false, false) && !AppState.CanStudentFinish(true, true, false, true, false, false, false, false), "finish disabled after release or terminate");
+var confirm = AppState.FinishConfirmation();
+Check(confirm.HasCancel && confirm.OkText == "Finish" && confirm.CancelText == "Cancel" && confirm.FocusCancel &&
+      confirm.Message.StartsWith("Only press this after you have submitted the test on the exam website."), "confirmation text and Finish/Cancel buttons");
+Check(AppState.PostSubmitTexts(false, true, "x").Message == "Finished. Waiting for your teacher to release you.", "teacher release wording after finish");
+Check(AppState.PostSubmitTexts(false, false, "x").Message == "Submitted. Waiting for your teacher to release you.", "time-up wording unchanged");
+Check(EventType.StudentFinished == "STUDENT_FINISHED", "STUDENT_FINISHED event type");
+
+Section("6. Frames and printing (Windows parity)");
+Check(ExamWebView.IsInertFrameUrl("about:blank") && ExamWebView.IsInertFrameUrl("ABOUT:SRCDOC"), "empty frames recognised");
+Check(!ExamWebView.IsInertFrameUrl("about:config") && !ExamWebView.IsInertFrameUrl("https://evil.example/"), "only empty frames are exempt");
+Check(ExamWebView.PrintBlockScript.Contains("window") && ExamWebView.PrintBlockScript.Contains("print"), "print guard script present");
 
 var baseUrl = Environment.GetEnvironmentVariable("AVAIBE_TEST_BASE_URL");
 var adminUser = Environment.GetEnvironmentVariable("AVAIBE_TEST_ADMIN");
@@ -127,6 +210,58 @@ using (var otherKey = System.Security.Cryptography.ECDsa.Create(System.Security.
     var fake = new CommandVerifier();
     fake.SetPinnedKey(Convert.ToBase64String(otherKey.ExportSubjectPublicKeyInfo()), enroll.KeyId);
     Check(fake.Verify(beat2.Command.Authorization, "RELEASE", session.SessionId, enroll.DeviceId, out var why5) == null, "release signed by a different server refused: " + why5);
+}
+
+// External-website exams (§11): one exam per releaseOnSubmit value.
+foreach (var release in new[] { "auto", "teacher" })
+{
+    var extCode = "LX" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(3));
+    var created = await admin.PostAsJsonAsync("/api/v1/admin/exams", new {
+        code = extCode, title = "External logic test (" + release + ")", durationMinutes = 10, openToAll = true, accessCode = extCode,
+        releaseOnSubmit = release, kind = "external", startUrl = "https://www.testwise.com/", allowedSites = new[] { "*.testwise.com" } });
+    Check(created.IsSuccessStatusCode, "external exam created (releaseOnSubmit=" + release + "): " + (int)created.StatusCode + " " + (created.IsSuccessStatusCode ? "" : await created.Content.ReadAsStringAsync()));
+    if (!created.IsSuccessStatusCode) continue;
+
+    SessionStartResponse extSess;
+    try
+    {
+        extSess = await api.StartSessionAsync(new SessionStartRequest { StudentCode = studentCode, ExamCode = extCode, DeviceId = enroll.DeviceId, AccessCode = extCode });
+    }
+    catch (ApiException ex)
+    {
+        Check(false, "external session started: " + ex.Code + " | " + ex.Message);
+        continue;
+    }
+    Check(extSess.Normalize() == null, "external session response usable");
+    var extPol = extSess.PolicyOrDefault;
+    Check(extSess.ExamUrl == "https://www.testwise.com/", "examUrl is the start address: " + extSess.ExamUrl);
+    Check(extPol.ExamMode == "external" && extPol.IsExternalExam, "policy.examMode external: " + extPol.ExamMode);
+    Check(extPol.AllowedSites.Contains("www.testwise.com") && extPol.AllowedSites.Contains("*.testwise.com"), "allowedSites has start host and teacher list: " + string.Join(",", extPol.AllowedSites));
+    Check(ExamWebView.IsExamUrlAcceptable(new Uri(extSess.ExamUrl), extPol, out var liveWhy), "client accepts the server's start URL " + liveWhy);
+    var liveWeb = new ExamWebView();
+    liveWeb.ConfigureLinks(extPol);
+    liveWeb.SetExamForTest(new Uri(extSess.ExamUrl), extSess.SessionId);
+    Check(liveWeb.IsNavigationAllowed("https://app.testwise.com/test", out _) && !liveWeb.IsNavigationAllowed("https://mail.google.com/", out _) &&
+          liveWeb.BackToExamTarget == extSess.ExamUrl, "client rules with the server policy");
+
+    api.SetSessionToken(extSess.SessionToken);
+    verifier.UpdateServerTime(extSess.ServerTime);
+    var evResp = await api.PostEventsAsync(extSess.SessionId, new List<TelemetryEvent> {
+        new TelemetryEvent(EventType.StudentFinished, EventSeverity.Info, new Dictionary<string, object?> { ["remainingSeconds"] = 540 }) });
+    Check((evResp.Accepted ?? 0) == 1, "server accepts STUDENT_FINISHED event: accepted=" + evResp.Accepted);
+    var submitted = await api.SubmitAsync(extSess.SessionId);
+    Check(submitted.Release == release, "submit -> release " + submitted.Release + " (expected " + release + ")");
+    var beat = await api.HeartbeatAsync(extSess.SessionId, new HeartbeatRequest { Status = HeartbeatStatus.Locked, DisplayCount = 1, LockdownMode = LockdownMode.KioskFallback, UptimeSeconds = 30 });
+    verifier.UpdateServerTime(beat.ServerTime);
+    if (release == "auto")
+    {
+        Check(beat.Command?.Type == HeartbeatCommandType.Release && beat.Command.Authorization != null, "auto: next heartbeat carries a signed RELEASE");
+        Check(beat.Command != null && verifier.Verify(beat.Command.Authorization, "RELEASE", extSess.SessionId, enroll.DeviceId, out var whyExt) != null, "auto: verifier accepts that RELEASE");
+    }
+    else
+    {
+        Check(beat.Command == null || beat.Command.Type != HeartbeatCommandType.Release, "teacher: no RELEASE until the teacher releases");
+    }
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

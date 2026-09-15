@@ -1,5 +1,5 @@
 // Exams: CRUD, questions (answer key stays server-side), allowedLinks, per-exam policy, window, access code.
-import { HttpError, nowIso, isObject, newId, str, sha256hex, safeEqual, CODE_RE, parseVersion, clampInt } from "../util.js";
+import { HttpError, nowIso, isObject, newId, str, sha256hex, safeEqual, CODE_RE, parseVersion, clampInt, normalizeSitePattern } from "../util.js";
 import { transaction, getSetting, setSetting } from "../db.js";
 import { MIN_CLIENT_VERSION } from "../config.js";
 
@@ -118,6 +118,46 @@ export function validateLink(link, publicHost) {
   return { label, url: u.toString() };
 }
 
+// --- external-website exams (CONTRACT §11) --------------------------------------------------
+
+export const EXAM_KINDS = ["questions", "external"];
+
+/** Start address of an external exam: https (http only on this server's own host or localhost), no userinfo. */
+export function validateStartUrl(value, publicHost) {
+  const url = str(value, 2000);
+  if (!url) throw new HttpError(400, "INVALID_START_URL", "An external exam needs a start address (https://...)");
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new HttpError(400, "INVALID_START_URL", "The start address is not a valid URL");
+  }
+  if (u.username || u.password) throw new HttpError(400, "INVALID_START_URL", "The start address must not contain a user name or password");
+  const host = u.hostname.toLowerCase();
+  // Same rule as the apps: plain http only for local testing.
+  const local = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) {
+    throw new HttpError(400, "INVALID_START_URL", "The start address must start with https://");
+  }
+  return u.toString();
+}
+
+/** Teacher's extra sites: host or *.host, normalised, de-duplicated, at most 48 (the start host and its www twin make 50). */
+export function validateAllowedSites(list) {
+  if (!Array.isArray(list)) throw new HttpError(400, "INVALID_SITE", "allowedSites must be a list of site addresses");
+  const out = [];
+  for (const raw of list) {
+    if (typeof raw !== "string" || !raw.trim()) continue;
+    const p = normalizeSitePattern(raw);
+    if (!p) {
+      throw new HttpError(400, "INVALID_SITE", `"${String(raw).slice(0, 80)}" is not a valid site. Use a host like cdn.example.com or *.example.com (no https://, no paths; *.com is not allowed).`);
+    }
+    if (!out.includes(p)) out.push(p);
+  }
+  if (out.length > 48) throw new HttpError(400, "INVALID_SITE", "At most 48 allowed sites");
+  return out;
+}
+
 // --- questions -------------------------------------------------------------------------------
 
 export function validateQuestions(list) {
@@ -187,6 +227,9 @@ export function publicExam(ctx, row, { full = false } = {}) {
     openToAll: !!row.open_to_all,
     hasAccessCode: !!row.access_code_hash,
     releaseOnSubmit: row.release_on_submit,
+    kind: row.kind || "questions",
+    startUrl: row.start_url || null,
+    allowedSites: JSON.parse(row.allowed_sites_json || "[]"),
     questionCount: ctx.db.prepare("SELECT COUNT(*) AS n FROM exam_questions WHERE exam_id = ?").get(row.id).n,
     allowedLinks: linksFor(ctx, row.id),
     policy: JSON.parse(row.policy_json),
@@ -231,6 +274,12 @@ export function upsert(ctx, body, { existing = null, publicHost = null } = {}) {
     const ac = body.accessCode === null ? "" : str(body.accessCode, 64);
     accessHash = ac ? sha256hex(`access:${code}:${ac}`) : null;
   }
+  const kind = body.kind !== undefined ? body.kind : existing?.kind ?? "questions";
+  if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, "INVALID_REQUEST", "kind must be questions or external");
+  let startUrl = existing?.start_url ?? null;
+  if (body.startUrl !== undefined) startUrl = body.startUrl === null || body.startUrl === "" ? null : validateStartUrl(body.startUrl, publicHost);
+  if (kind === "external" && !startUrl) throw new HttpError(400, "INVALID_START_URL", "An external exam needs a start address (https://...)");
+  const allowedSites = body.allowedSites !== undefined ? validateAllowedSites(body.allowedSites) : JSON.parse(existing?.allowed_sites_json || "[]");
   const policy = body.policy !== undefined ? validatePolicyPatch(body.policy) : existing ? JSON.parse(existing.policy_json) : {};
   const questions = body.questions !== undefined ? validateQuestions(body.questions) : null;
   const links = body.allowedLinks !== undefined ? (Array.isArray(body.allowedLinks) ? body.allowedLinks : (() => { throw new HttpError(400, "INVALID_LINK", "allowedLinks must be an array"); })()).slice(0, 50).map((l) => validateLink(l, publicHost)) : null;
@@ -245,17 +294,19 @@ export function upsert(ctx, body, { existing = null, publicHost = null } = {}) {
     if (existing) {
       ctx.db
         .prepare(
-          `UPDATE exams SET title = ?, duration_minutes = ?, access_code_hash = ?, is_open = ?, open_from = ?, open_until = ?, open_to_all = ?, release_on_submit = ?, policy_json = ?, updated_at = ? WHERE id = ?`
+          `UPDATE exams SET title = ?, duration_minutes = ?, access_code_hash = ?, is_open = ?, open_from = ?, open_until = ?, open_to_all = ?, release_on_submit = ?, policy_json = ?,
+             kind = ?, start_url = ?, allowed_sites_json = ?, updated_at = ? WHERE id = ?`
         )
-        .run(title, duration, accessHash, isOpen ? 1 : 0, openFrom, openUntil, openToAll ? 1 : 0, releaseOnSubmit, JSON.stringify(policy), now, id);
+        .run(title, duration, accessHash, isOpen ? 1 : 0, openFrom, openUntil, openToAll ? 1 : 0, releaseOnSubmit, JSON.stringify(policy), kind, startUrl, JSON.stringify(allowedSites), now, id);
     } else {
       id = newId("exm");
       ctx.db
         .prepare(
-          `INSERT INTO exams (id, code, title, duration_minutes, access_code_hash, is_open, open_from, open_until, open_to_all, release_on_submit, policy_json, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO exams (id, code, title, duration_minutes, access_code_hash, is_open, open_from, open_until, open_to_all, release_on_submit, policy_json,
+             kind, start_url, allowed_sites_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(id, code, title, duration, accessHash, isOpen ? 1 : 0, openFrom, openUntil, openToAll ? 1 : 0, releaseOnSubmit, JSON.stringify(policy), now, now);
+        .run(id, code, title, duration, accessHash, isOpen ? 1 : 0, openFrom, openUntil, openToAll ? 1 : 0, releaseOnSubmit, JSON.stringify(policy), kind, startUrl, JSON.stringify(allowedSites), now, now);
     }
     if (questions) {
       ctx.db.prepare("DELETE FROM exam_questions WHERE exam_id = ?").run(id);

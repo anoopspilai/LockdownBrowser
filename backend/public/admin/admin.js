@@ -253,8 +253,8 @@
         const win = [x.isOpen ? badge("b-green", "open") : badge("b-red", "closed"), x.openFrom || x.openUntil ? h("small", { class: "muted" }, ` ${x.openFrom ? "from " + fmtTime(x.openFrom) : ""} ${x.openUntil ? "until " + fmtTime(x.openUntil) : ""}`) : null];
         tbody.appendChild(h("tr", { dataset: { code: x.code } },
           h("td", null, h("code", null, x.code), x.hasAccessCode ? h("small", { class: "muted" }, " · access code") : null),
-          h("td", { class: "wrap" }, x.title, h("br"), h("small", { class: "muted" }, x.openToAll ? "open to all students" : "assigned students only", x.allowedLinks.length ? ` · ${x.allowedLinks.length} link(s)` : "")),
-          h("td", null, x.durationMinutes + " min"), h("td", null, String(x.questionCount)), h("td", null, win), h("td", null, x.releaseOnSubmit),
+          h("td", { class: "wrap" }, x.title, h("br"), h("small", { class: "muted" }, x.kind === "external" && x.startUrl ? (() => { try { return new URL(x.startUrl).host + " · "; } catch { return ""; } })() : "", x.openToAll ? "open to all students" : "assigned students only", x.allowedLinks.length ? ` · ${x.allowedLinks.length} link(s)` : "")),
+          h("td", null, x.durationMinutes + " min"), h("td", null, x.kind === "external" ? badge("b-grey", "external website") : String(x.questionCount)), h("td", null, win), h("td", null, x.releaseOnSubmit),
           h("td", { class: "actions" }, h("button", { dataset: { act: "edit" } }, "Edit"), h("button", { dataset: { act: x.isOpen ? "close" : "open" }, disabled: !canWrite() }, x.isOpen ? "Close" : "Open"))));
       }
     } catch (e) { toast(e.message, true); }
@@ -268,6 +268,16 @@
     } catch (err) { toast(err.message, true); }
   });
   $("newExamBtn").addEventListener("click", () => openExamEditor(null));
+  /** External exams (CONTRACT §11): start address + allowed sites instead of questions. */
+  function applyExamKind() {
+    const f = $("examForm");
+    const external = f.kind.value === "external";
+    $("startUrlField").hidden = !external;
+    $("allowedSitesField").hidden = !external;
+    $("questionsSection").hidden = external;
+    f.startUrl.required = external;
+  }
+  $("examForm").kind.addEventListener("change", applyExamKind);
   $("closeExamEditor").addEventListener("click", () => { $("examEditor").hidden = true; state.editingExam = null; });
   const P_BOOLS = ["requireSIP", "requireMDM", "requireStandardAccount", "requireAAC", "blockExternalDisplay", "allowStudentReleaseCode", "allowClipboard", "allowPrinting"];
   const P_NUMS = ["heartbeatIntervalSeconds", "eventFlushIntervalSeconds", "offlineGraceSeconds"];
@@ -289,6 +299,10 @@
     f.openToAll.checked = x ? x.openToAll : true;
     f.openFrom.value = toLocalInput(x && x.openFrom); f.openUntil.value = toLocalInput(x && x.openUntil);
     f.assignedStudentCodes.value = x ? x.assignedStudentCodes.join(", ") : "";
+    f.kind.value = x && x.kind === "external" ? "external" : "questions";
+    f.startUrl.value = x && x.startUrl ? x.startUrl : "";
+    f.allowedSites.value = x && x.allowedSites ? x.allowedSites.join("\n") : "";
+    applyExamKind();
     const p = (x && x.policy) || {};
     for (const k of P_BOOLS) f["p_" + k].checked = p[k] !== undefined ? !!p[k] : ["blockExternalDisplay", "allowStudentReleaseCode"].includes(k);
     for (const k of P_NUMS) f["p_" + k].value = p[k] !== undefined ? p[k] : { heartbeatIntervalSeconds: 10, eventFlushIntervalSeconds: 5, offlineGraceSeconds: 600 }[k];
@@ -340,6 +354,12 @@
       policy: {}
     };
     if (!state.editingExam) body.code = f.code.value.trim().toUpperCase();
+    body.kind = f.kind.value;
+    if (body.kind === "external") {
+      body.startUrl = f.startUrl.value.trim();
+      body.allowedSites = f.allowedSites.value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+      delete body.questions;
+    }
     const ac = f.accessCode.value.trim();
     if (ac === "-") body.accessCode = null; else if (ac) body.accessCode = ac;
     for (const l of body.allowedLinks) if (!l.label || !validateLinkUrl(l.url)) { setStatus("examStatus", `Link "${l.label || "?"}": URL must be https:// or a /path on this server (no userinfo, no ..)`, "err"); return; }
@@ -507,6 +527,27 @@
   // ---- EXAM RULE EXPLANATIONS (information buttons) --------------------------------------------
   // Plain-English help for every exam rule. Rendered with DOM methods (no HTML strings).
   const INFO = {
+    examKind: {
+      title: "Exam type",
+      p: ["Questions in Avaibe Exam: you write the questions here, and students answer them inside the app.",
+          "External exam website: the exam runs on another website, for example CAT4 on Testwise, MAP Growth, or a quiz in your school's learning platform. The app locks the computer and opens that website. The student signs in there and takes the test. Nothing about questions or scores is stored here.",
+          "On an external exam the student presses \u201cI have finished\u201d when done. With Release on submit set to auto they are released at once; with teacher they wait for you."],
+      tip: "Before the real exam, do one test run on a school computer. Pages that are blocked show up in the Events timeline, so you can add them to Allowed sites."
+    },
+    startUrl: {
+      title: "Start address",
+      p: ["The web address the locked window opens first, for example https://www.testwise.com/ or the page the exam provider gives you.",
+          "It must start with https://. That website, and the same address with or without www., is always allowed."],
+      tip: "Copy the address from the exam provider's instructions for students."
+    },
+    allowedSites: {
+      title: "Allowed sites",
+      p: ["Other websites the exam needs, one per line. Most exam websites use a separate sign-in page or a second address, and those must be listed or the student sees a blank or blocked page.",
+          "Write only the site name, without https:// or a path. Use *. to allow a site and all its sub-addresses: *.testwise.com allows testwise.com, www.testwise.com and app.testwise.com.",
+          "Everything not on the list is blocked, including links inside the exam website that lead elsewhere. Pictures and scripts that the exam website loads are always allowed."],
+      tip: "If students sign in with Google or Microsoft, add only the sign-in address, such as accounts.google.com or login.microsoftonline.com.",
+      warn: "Do not add *.google.com or *.microsoft.com: that would also open Gmail, Drive, Outlook and search. Wide patterns like *.com are refused."
+    },
     policy: {
       title: "Exam rules",
       p: ["These rules control how the Avaibe Exam app locks the computer for this exam.",

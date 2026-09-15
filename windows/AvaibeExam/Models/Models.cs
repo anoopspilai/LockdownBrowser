@@ -407,11 +407,48 @@ public sealed class Policy
     [JsonPropertyName("releaseOnSubmit")] public string ReleaseOnSubmit { get; set; } = "teacher";
     [JsonPropertyName("minClientVersion")] public string MinClientVersion { get; set; } = "0.1.0";
     [JsonPropertyName("allowStudentReleaseCode")] public bool AllowStudentReleaseCode { get; set; } = true;
+    /// <summary>§11.2: "questions" (default; missing or unknown means questions) | "external" (third-party exam website).</summary>
+    [JsonPropertyName("examMode")] public string ExamMode { get; set; } = ExamModeQuestions;
+    /// <summary>§11.2: host patterns ("host" or "*.host") an external exam may navigate to. Empty for questions exams.</summary>
+    [JsonPropertyName("allowedSites")] public List<string> AllowedSites { get; set; } = new List<string>();
+
+    public const string ExamModeQuestions = "questions";
+    public const string ExamModeExternal = "external";
+    public const int MaxAllowedSites = 50;
 
     /// <summary>Conservative defaults used before the server has sent a policy.</summary>
     public static Policy ConservativeDefault => new Policy();
 
     public bool ReleaseOnSubmitIsAuto => string.Equals(ReleaseOnSubmit, "auto", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>§11.3: the exam runs on a third-party website (bridge off, allowedSites navigation rule).</summary>
+    [JsonIgnore] public bool IsExternalExam => string.Equals(ExamMode, ExamModeExternal, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// §11.1 allowedSites entry syntax: "host" or "*.host", lower case, DNS labels only (letters, digits,
+    /// hyphens), no scheme, path, port, userinfo, spaces or other "*". A "*." suffix needs at least two
+    /// labels and must not be a public suffix. Returns the normalised entry, or null to drop it.
+    /// </summary>
+    public static string? NormalizeSitePattern(string? entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) return null;
+        var p = entry.Trim().ToLowerInvariant();
+        if (p.Length > 253) return null;
+        var wildcard = p.StartsWith("*.", StringComparison.Ordinal);
+        var host = wildcard ? p.Substring(2) : p;
+        if (host.Length == 0 || host.Length > 253) return null;
+        foreach (var label in host.Split('.'))
+        {
+            if (label.Length == 0 || label.Length > 63) return null;
+            if (label[0] == '-' || label[label.Length - 1] == '-') return null;
+            foreach (var c in label)
+            {
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return null;
+            }
+        }
+        if (wildcard && !AvaibeExam.Browser.ExamWebView.IsAcceptableWildcardSuffix(host)) return null;
+        return p;
+    }
 
     /// <summary>Clamps every number, null-guards lists and drops malformed entries (server data is untrusted). (W-07)</summary>
     public Policy Normalized()
@@ -419,7 +456,11 @@ public sealed class Policy
         AllowedDomains ??= new List<string>();
         AllowedApps ??= new List<AllowedApp>();
         AllowedLinks ??= new List<AllowedLink>();
+        AllowedSites ??= new List<string>();
         Mode ??= "school";
+        ExamMode = string.Equals((ExamMode ?? string.Empty).Trim(), ExamModeExternal, StringComparison.OrdinalIgnoreCase)
+            ? ExamModeExternal
+            : ExamModeQuestions;
         MinClientVersion = string.IsNullOrWhiteSpace(MinClientVersion) ? "0.1.0" : MinClientVersion;
         ReleaseOnSubmit = string.Equals(ReleaseOnSubmit, "auto", StringComparison.OrdinalIgnoreCase) ? "auto" : "teacher";
         HeartbeatIntervalSeconds = Math.Clamp(HeartbeatIntervalSeconds, MinHeartbeatSeconds, MaxHeartbeatSeconds);
@@ -445,6 +486,16 @@ public sealed class Policy
             if (links.Count >= 20) break;
         }
         AllowedLinks = links;
+
+        var sites = new List<string>();
+        foreach (var s in AllowedSites)
+        {
+            var n = NormalizeSitePattern(s);
+            if (n == null || sites.Contains(n)) continue;
+            sites.Add(n);
+            if (sites.Count >= MaxAllowedSites) break;
+        }
+        AllowedSites = sites;
 
         var apps = new List<AllowedApp>();
         foreach (var a in AllowedApps)
@@ -629,6 +680,9 @@ public static class EventType
     public const string SessionConflict = "SESSION_CONFLICT";
     public const string PolicyMismatch = "POLICY_MISMATCH";
     public const string CaptureProtectionLost = "CAPTURE_PROTECTION_LOST";
+
+    // External-website exams (§11.3)
+    public const string StudentFinished = "STUDENT_FINISHED";
 }
 
 public sealed class TelemetryEvent

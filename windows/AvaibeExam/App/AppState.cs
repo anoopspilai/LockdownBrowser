@@ -109,6 +109,10 @@ public sealed class AppState : ObservableObject
     private bool _serverSubmitDone;
     private bool _submitInFlight;
     private bool _submitRetryPending;
+    /// <summary>§11.3: the student pressed "I have finished" and the confirmation is open or was accepted.</summary>
+    private bool _studentFinishing;
+    /// <summary>§11.3: the student confirmed "I have finished" (drives the post-submit wording).</summary>
+    private bool _studentFinished;
     private bool _recoveryLoopRunning;
     private bool _autoRunPending;
     private int _lastServerRemaining = -1;
@@ -238,6 +242,8 @@ public sealed class AppState : ObservableObject
             Raise(nameof(CanStartExam));
             Raise(nameof(RequireAACButUnavailable));
             Raise(nameof(AllowedLinks));
+            Raise(nameof(IsExternalExam));
+            Raise(nameof(CanFinishExam));
         }
     }
 
@@ -277,6 +283,53 @@ public sealed class AppState : ObservableObject
     public bool AssignedAccessHint => _preflightRaw?.Report.AssignedAccessHint ?? false;
 
     public IReadOnlyList<AllowedLink> AllowedLinks => Policy.AllowedLinks;
+
+    /// <summary>§11.3: the exam runs on a third-party website ("I have finished" is shown).</summary>
+    public bool IsExternalExam => Policy.IsExternalExam;
+
+    /// <summary>§11.3: whether the "I have finished" button is enabled right now.</summary>
+    public bool CanFinishExam => CanStudentFinish(
+        isExternal: Policy.IsExternalExam,
+        onExamScreen: Screen == AppScreen.Exam,
+        released: _released,
+        terminated: _terminated,
+        submitDone: _serverSubmitDone,
+        submitInFlight: _submitInFlight,
+        finishing: _studentFinishing,
+        blockingOverlay: ExitOverlay != null || PauseMessage != null || ScriptDialog != null);
+
+    public const string FinishConfirmText =
+        "Only press this after you have submitted the test on the exam website. Your teacher will then release you.";
+
+    /// <summary>"I have finished" availability (UI-free; unit-tested).</summary>
+    internal static bool CanStudentFinish(bool isExternal, bool onExamScreen, bool released, bool terminated,
+                                          bool submitDone, bool submitInFlight, bool finishing, bool blockingOverlay)
+    {
+        return isExternal && onExamScreen && !released && !terminated && !submitDone && !submitInFlight && !finishing && !blockingOverlay;
+    }
+
+    /// <summary>The in-window confirmation shown before "I have finished" submits (never a MessageBox).</summary>
+    internal static ScriptDialogRequest FinishConfirmation() => new ScriptDialogRequest("confirm", FinishConfirmText, null)
+    {
+        Title = "I have finished",
+        OkText = "Finish",
+        CancelText = "Cancel",
+        FocusCancel = true,
+    };
+
+    /// <summary>(title, message, status) of the hold overlay after a successful submit (§10.5 / §11.3 wording).</summary>
+    internal static (string Title, string Message, string Status) PostSubmitTexts(bool releaseAuto, bool studentFinished, string doneText)
+    {
+        if (studentFinished)
+        {
+            return releaseAuto
+                ? ("Finished", "Finished. You will be released in a moment.", "Finished. Waiting for the release…")
+                : ("Finished", "Finished. Waiting for your teacher to release you.", "Your teacher will release the exam. Stay on this screen.");
+        }
+        return releaseAuto
+            ? ("Exam submitted", doneText, "Submitted. Waiting for the release…")
+            : ("Exam submitted", "Submitted. Waiting for your teacher to release you.", "Your teacher will release the exam. Stay on this screen.");
+    }
 
     /// <summary>true while the exam view shows an allowed resource rather than the exam page.</summary>
     public bool IsOnResourcePage => Screen == AppScreen.Exam && Web.IsOnResourcePage;
@@ -442,8 +495,12 @@ public sealed class AppState : ObservableObject
 
         Web.Bridge.OnMessage = HandleBridge;
         Web.OnBlockedNavigation = (url, reason) =>
+        {
+            // The host lets the teacher add it to "Allowed sites" for external exams (§11.3).
+            var host = Uri.TryCreate(url, UriKind.Absolute, out var bu) ? bu.Host.ToLowerInvariant() : string.Empty;
             Events.Record(EventType.BlockedNavigation, EventSeverity.Medium,
-                new Dictionary<string, object?> { ["url"] = url, ["reason"] = reason });
+                new Dictionary<string, object?> { ["url"] = url, ["host"] = host, ["reason"] = reason });
+        };
         Web.OnForeignMessage = origin =>
             Events.Record(EventType.BlockedNavigation, EventSeverity.Medium,
                 new Dictionary<string, object?> { ["url"] = origin, ["reason"] = "bridge-foreign-origin" });
@@ -731,7 +788,7 @@ public sealed class AppState : ObservableObject
             _expiresAt = response.ExpiresAtDate;
             RemainingSeconds = ClampedRemaining(_expiresAt);
             Log.Info(LogCat, "Session started (" + response.ExamOrEmpty.Code + "); requireAAC=" + policy.RequireAAC +
-                             " releaseOnSubmit=" + policy.ReleaseOnSubmit + " offlineGrace=" + policy.OfflineGraceSeconds + "s links=" + policy.AllowedLinks.Count);
+                             " examMode=" + policy.ExamMode + " releaseOnSubmit=" + policy.ReleaseOnSubmit + " offlineGrace=" + policy.OfflineGraceSeconds + "s links=" + policy.AllowedLinks.Count);
             Screen = AppScreen.Preflight;
         }
         catch (ApiException ex)
@@ -843,6 +900,8 @@ public sealed class AppState : ObservableObject
             _serverSubmitDone = false;
             _submitInFlight = false;
             _submitRetryPending = false;
+            _studentFinishing = false;
+            _studentFinished = false;
             _timeUpHandled = false;
             _lastServerRemaining = -1;
             OfflineSeconds = 0;
@@ -1026,6 +1085,7 @@ public sealed class AppState : ObservableObject
         if (session == null) return null;
         if (_serverSubmitDone || _submitInFlight) return null;
         _submitInFlight = true;
+        Raise(nameof(CanFinishExam));
         try
         {
             var response = await Api.SubmitAsync(session.SessionId);
@@ -1055,6 +1115,7 @@ public sealed class AppState : ObservableObject
         finally
         {
             _submitInFlight = false;
+            Raise(nameof(CanFinishExam));
         }
     }
 
@@ -1079,16 +1140,47 @@ public sealed class AppState : ObservableObject
             Heartbeat.BeatNow();
             return;
         }
-        if (response.ReleaseIsAuto)
-        {
-            ShowExitOverlay("Exam submitted", doneText, canGoBack: false, statusText: "Submitted. Waiting for the release…");
-        }
-        else
-        {
-            ShowExitOverlay("Exam submitted", "Submitted. Waiting for your teacher to release you.", canGoBack: false,
-                statusText: "Your teacher will release the exam. Stay on this screen.");
-        }
+        var texts = PostSubmitTexts(response.ReleaseIsAuto, _studentFinished, doneText);
+        ShowExitOverlay(texts.Title, texts.Message, canGoBack: false, statusText: texts.Status);
         Heartbeat.BeatNow();
+    }
+
+    // ---- "I have finished" (external exams, §11.3) -----------------------------------
+
+    /// <summary>Status-strip "I have finished": confirm in-window, then submit like time-up does.</summary>
+    public void RequestStudentFinished()
+    {
+        if (!CanFinishExam) return;
+        Fire(RequestStudentFinishedAsync, "StudentFinished");
+    }
+
+    private async Task RequestStudentFinishedAsync()
+    {
+        _studentFinishing = true;   // the button stays disabled while the confirmation is open
+        Raise(nameof(CanFinishExam));
+        try
+        {
+            var result = await ShowScriptDialogAsync(FinishConfirmation());
+            if (!result.Accepted) return;
+            if (Screen != AppScreen.Exam || _released || _terminated || _serverSubmitDone || !Policy.IsExternalExam) return;
+
+            _studentFinished = true;
+            _timeUpHandled = true;   // a later time-up must not repaint the overlay or submit again
+            Log.Info(LogCat, "Student pressed I have finished; submitting");
+            Events.RecordNow(EventType.StudentFinished, EventSeverity.Info, new Dictionary<string, object?>
+            {
+                ["remainingSeconds"] = RemainingSeconds,
+            });
+            ShowExitOverlay("Finished", "Telling your teacher that you have finished…", canGoBack: false,
+                statusText: "Please wait…");
+            var response = await SubmitExamAsync("student-finished");
+            AfterSubmit(response, "Finished. You will be released in a moment.");
+        }
+        finally
+        {
+            if (!_studentFinished) _studentFinishing = false;
+            Raise(nameof(CanFinishExam));
+        }
     }
 
     // ---- Heartbeat commands (§10.4) --------------------------------------------------
@@ -1154,6 +1246,7 @@ public sealed class AppState : ObservableObject
         if (_released || _terminated) return;
         _terminated = true;
         _timeUpHandled = true; // time-up must not double-submit / repaint the overlay
+        Raise(nameof(CanFinishExam));
         Log.Warn("security", "Session terminated (" + source + "); holding lockdown until a verified release");
         Events.RecordNow(EventType.SessionEnd, EventSeverity.High,
             new Dictionary<string, object?> { ["reason"] = "terminated", ["source"] = source, ["held"] = true });

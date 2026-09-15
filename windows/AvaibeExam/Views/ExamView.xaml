@@ -30,9 +30,9 @@
                 <TextBlock x:Name="CountdownText" DockPanel.Dock="Right" FontFamily="Consolas" FontSize="14" Foreground="White"
                            VerticalAlignment="Center" Text="00:00"/>
 
-                <!-- Resources (policy.allowedLinks) + Back to exam -->
+                <!-- Resources (policy.allowedLinks) + Back to exam + I have finished (external exams, §11.3) -->
                 <StackPanel x:Name="ResourcesPanel" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0" Visibility="Collapsed">
-                    <Grid>
+                    <Grid x:Name="ResourcesPicker">
                         <ComboBox x:Name="ResourcesBox" Width="190" Height="22" FontSize="11" DisplayMemberPath="Label"
                                   SelectionChanged="ResourcesBox_SelectionChanged"/>
                         <TextBlock x:Name="ResourcesPlaceholder" Text="Resources ▾" FontSize="11" Foreground="#374151"
@@ -40,6 +40,9 @@
                     </Grid>
                     <Button x:Name="BackToExamButton" Content="Back to exam" FontSize="11" Padding="8,2" Margin="6,0,0,0"
                             Cursor="Hand" Visibility="Collapsed" Click="BackToExamButton_Click"/>
+                    <Button x:Name="FinishedButton" Content="I have finished" FontSize="11" FontWeight="SemiBold" Padding="10,2" Margin="6,0,0,0"
+                            Cursor="Hand" Visibility="Collapsed" Click="FinishedButton_Click"
+                            ToolTip="Press this only after you have submitted the test on the exam website."/>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

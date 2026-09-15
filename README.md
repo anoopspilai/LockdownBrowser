@@ -47,6 +47,12 @@ type it in the Access code box; otherwise leave it blank. Press **Continue**, th
 **4. Release the student** from the teacher console with **Remote release**, or give them a
 one-time **Release code**.
 
+## Exams on other websites
+
+An exam can also run on any exam website, such as CAT4 on Testwise or MAP Growth. Choose **External
+exam website** as the exam type in the teacher console and give its start address. The app locks the
+computer and opens that website; see [`backend/README.md`](backend/README.md).
+
 ## If the screen is locked and you are stuck
 
 - Release the student from the teacher console.

@@ -23,6 +23,25 @@ The client implements CONTRACT §10:
   (`publish-debug\`). The installer is built from Release output only.
 - All readiness checks are reported to the server as **client-reported**.
 
+## External exam websites (CONTRACT §11)
+
+A teacher can make an exam of type **External exam website** (for example CAT4 on Testwise). The
+student then signs in to that website inside the locked window and takes the test there.
+
+- The window opens the **Start address**. The student can only open sites on the teacher's
+  **Allowed sites** list (for example `*.testwise.com`, `accounts.google.com`) and Resources links.
+  Everything else is blocked and shows "... is not an allowed link during this exam."
+- Each blocked address is recorded as `BLOCKED_NAVIGATION` with its host. The teacher sees it in the
+  session's **Events** timeline and can add that host to **Allowed sites**.
+- Pop-up windows to allowed sites (sign-in pages) open in the same window. Pictures and scripts from
+  other servers load normally; only pages and frames are checked.
+- **Back to exam** goes back to the Start address.
+- The status strip has an **I have finished** button. The student presses it only after submitting
+  the test on the website. After confirming, the app tells the server the student has finished
+  (`STUDENT_FINISHED`). Then either the exam releases by itself, or the screen says "Finished.
+  Waiting for your teacher to release you."
+- The app sends nothing to the website and accepts no messages from it.
+
 ## Requirements
 
 - Windows 11, or Windows 10 version 2004 (build 19041) or newer
@@ -34,8 +53,8 @@ No administrator rights are needed to run the app.
 
 ## Logic tests
 
-UI-free checks of the sign-in messages, access code, allowed links, Back to exam, and signed release
-commands. Build the app in Release first, then:
+UI-free checks of the sign-in messages, access code, allowed links, Back to exam, external exam
+websites (allowed sites, pop-ups, I have finished), and signed release commands. Build the app in Release first, then:
 
 ```powershell
 dotnet run -c Release --project tests\AvaibeExam.LogicTests

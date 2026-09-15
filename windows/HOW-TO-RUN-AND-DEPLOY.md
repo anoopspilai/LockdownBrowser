@@ -238,6 +238,21 @@ exam**, **Warn** (a message appears on the student's screen), **Terminate**, sub
 (`DEMO` releases automatically; other exams wait for the teacher), and letting the `DEMO` timer run
 out.
 
+**External exam websites.** In the console, make an exam with **Exam type: External exam website**,
+a **Start address** (for example `https://www.testwise.com/`) and **Allowed sites**, one per line
+(for example `*.testwise.com` and `accounts.google.com`). On the exam PC the student sees that
+website instead of the Avaibe questions page:
+
+- The student signs in and takes the test on the website, inside the locked window.
+- If the student clicks something outside the allowed sites, a yellow bar says it is not allowed.
+  The blocked address also appears in that session's **Events** timeline in the console
+  (`BLOCKED_NAVIGATION`, with the host). If the website really needs it, add that host to
+  **Allowed sites** and ask the student to try again.
+- When done, the student submits on the website, then presses **I have finished** in the status
+  strip and confirms. The console shows `STUDENT_FINISHED`. If the exam releases on submit, the app
+  unlocks within a few seconds; otherwise the screen says "Finished. Waiting for your teacher to
+  release you." and you release the student as usual.
+
 ## 6. If you get stuck in lockdown
 
 The app is built to be hard to leave. These always work:
@@ -288,7 +303,8 @@ preset it for every PC in the registry value `HKLM\SOFTWARE\Avaibe\Exam\BaseUrl`
 the box read-only.
 
 The exam page's own server is always allowed. Links the teacher adds to an exam under **Resources**
-are allowed automatically; you do not edit `allowedDomains` by hand.
+are allowed automatically; you do not edit `allowedDomains` by hand. For an external exam website,
+only the Start address, the **Allowed sites** list and Resources links can be opened.
 
 ## 8. Logs and resetting a PC
 
@@ -370,6 +386,7 @@ What the v2 pass changed in how the app behaves, in plain words:
 - **Terminate holds.** Terminate submits the exam and keeps the screen locked ("Session terminated. Wait for your teacher.") until a signed release arrives.
 - **Offline grace.** After `offlineGraceSeconds` without server contact the app releases itself, records why, and delivers the submission and events when the server is back.
 - **Resources menu.** The policy's `allowedLinks` show up in a "Resources" dropdown in the status strip. Everything else outside the exam page's origin is blocked, including frames and background requests.
+- **External exam websites.** For `examMode: "external"` the app allows pages only on `allowedSites` (and Resources links), does not filter pictures or scripts, opens allowed pop-ups in the same window, turns the page bridge off, and shows **I have finished**, which submits like time-up.
 - **Client-reported checks.** Every readiness item, including the Assigned Access hint, is labelled "client-reported". The server decides what counts.
 
 When you release a new version, change the version number in **three places** so they match:

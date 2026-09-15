@@ -37,7 +37,16 @@ export function assemblePolicy(ctx, exam, device, baseUrl) {
   const base = { ...exams.defaultPolicy(ctx), ...JSON.parse(exam.policy_json) };
   const origin = new URL(baseUrl);
   const links = exams.linksFor(ctx, exam.id).map((l) => ({ label: l.label, url: l.url.startsWith("/") ? new URL(l.url, baseUrl).toString() : l.url }));
-  const domains = new Set([origin.hostname.toLowerCase()]);
+  const external = exam.kind === "external";
+  // External exams (CONTRACT §11.2): the start host and its www twin first, then the teacher's sites.
+  const allowedSites = [];
+  if (external) {
+    const startHost = new URL(exam.start_url).hostname.toLowerCase();
+    for (const h of [startHost, wwwTwin(startHost), ...JSON.parse(exam.allowed_sites_json || "[]")]) {
+      if (h && !allowedSites.includes(h)) allowedSites.push(h);
+    }
+  }
+  const domains = new Set(external ? allowedSites : [origin.hostname.toLowerCase()]);
   for (const l of links) {
     try {
       const host = new URL(l.url).hostname.toLowerCase();
@@ -52,6 +61,8 @@ export function assemblePolicy(ctx, exam, device, baseUrl) {
   return {
     ...base,
     mode: device.mode,
+    examMode: external ? "external" : "questions",
+    allowedSites,
     allowedDomains: [...domains],
     allowedLinks: links,
     releaseOnSubmit: exam.release_on_submit,
@@ -186,7 +197,9 @@ export function start(ctx, { body, device, req, ip, clientVersionHeader }) {
 
   const sessionId = newSessionId();
   const sessionToken = newToken();
-  const launchToken = newToken();
+  const external = exam.kind === "external";
+  // External exams open the vendor's site directly: no launch link, no exam-page cookie (§11.2).
+  const launchToken = external ? null : newToken();
   const now = nowIso();
   const expiresAt = isoIn(exam.duration_minutes * 60_000);
   const launchExpires = isoIn(config.launchTokenSeconds * 1000);
@@ -209,13 +222,13 @@ export function start(ctx, { body, device, req, ip, clientVersionHeader }) {
       JSON.stringify(preflight).slice(0, 16_000),
       preflightExtras ? JSON.stringify(preflightExtras).slice(0, 8_000) : null,
       JSON.stringify(policy),
-      sha256hex(launchToken),
-      launchExpires,
+      launchToken ? sha256hex(launchToken) : null,
+      launchToken ? launchExpires : null,
       now,
       now
     );
     const s = { id: sessionId, student_id: student.id, exam_id: exam.id };
-    events.append(ctx, s, { type: "SESSION_CREATED", severity: "info", source: "server", metadata: { examCode: exam.code, deviceId: device.id, clientVersion } });
+    events.append(ctx, s, { type: "SESSION_CREATED", severity: "info", source: "server", metadata: { examCode: exam.code, deviceId: device.id, clientVersion, examMode: external ? "external" : "questions" } });
     // Client flag vs. registry mismatch is recorded, never trusted.
     if (typeof preflight.aacEntitlementPresent === "boolean" && preflight.aacEntitlementPresent !== !!device.kiosk_verified) {
       events.append(ctx, s, { type: "POLICY_MISMATCH", severity: "medium", source: "server", metadata: { field: "aacEntitlementPresent", clientReported: preflight.aacEntitlementPresent, deviceKioskVerified: !!device.kiosk_verified } });
@@ -231,7 +244,7 @@ export function start(ctx, { body, device, req, ip, clientVersionHeader }) {
     nextBeatInSeconds: jitteredInterval(policy.heartbeatIntervalSeconds),
     student: { id: student.code, name: student.name },
     exam: { code: exam.code, title: exam.title, durationMinutes: exam.duration_minutes },
-    examUrl: `${baseUrl}/exam/launch?lt=${launchToken}`,
+    examUrl: external ? exam.start_url : `${baseUrl}/exam/launch?lt=${launchToken}`,
     policy
   };
 }

@@ -79,6 +79,11 @@
         </div>
         <label>Title <input type="text" name="title"></label>
         <div class="cols">
+          <label><span>Exam type <button type="button" class="info" data-info="examKind" aria-label="What does “Exam type” mean?" aria-expanded="false">i</button></span> <select name="kind"><option value="questions">Questions in Avaibe Exam</option><option value="external">External exam website (any link)</option></select></label>
+          <label id="startUrlField" hidden><span>Start address <button type="button" class="info" data-info="startUrl" aria-label="What does “Start address” mean?" aria-expanded="false">i</button></span> <input type="url" name="startUrl" placeholder="https://www.testwise.com/" autocomplete="off"></label>
+        </div>
+        <label id="allowedSitesField" hidden><span>Allowed sites, one per line <button type="button" class="info" data-info="allowedSites" aria-label="What does “Allowed sites” mean?" aria-expanded="false">i</button></span> <textarea name="allowedSites" placeholder="*.testwise.com&#10;accounts.google.com"></textarea></label>
+        <div class="cols">
           <label>Release on submit <select name="releaseOnSubmit"><option value="teacher">teacher (wait for release)</option><option value="auto">auto</option></select></label>
           <label>Access code (blank = none) <input type="text" name="accessCode" autocomplete="off" placeholder="unchanged"></label>
         </div>
@@ -92,9 +97,11 @@
         </div>
         <label>Assigned student codes (comma/space separated; used when not open to all) <textarea name="assignedStudentCodes" placeholder="2001, 2002"></textarea></label>
 
-        <div class="group">Questions</div>
-        <div id="questionList"></div>
-        <div class="buttons"><button type="button" id="addQuestion">Add question</button></div>
+        <div id="questionsSection">
+          <div class="group">Questions</div>
+          <div id="questionList"></div>
+          <div class="buttons"><button type="button" id="addQuestion">Add question</button></div>
+        </div>
 
         <div class="group">Allowed links (resources the student may open)</div>
         <div id="linkList"></div>

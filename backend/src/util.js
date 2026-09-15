@@ -99,3 +99,36 @@ export function cleanHost(h) {
   if (!/^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]{1,253})(:\d{1,5})?$/.test(s)) return null;
   return s;
 }
+
+/**
+ * Bare public suffixes that must never be used as a "*." site pattern ("*.com" would allow the whole
+ * internet). Same short list as the Windows client (CONTRACT §11.1).
+ */
+export const PUBLIC_SUFFIXES = new Set([
+  "com", "net", "org", "edu", "gov", "mil", "int", "info", "biz", "io", "co", "app", "dev", "me",
+  "ae", "sa", "uk", "us", "au", "in", "de", "fr", "ca", "nl", "eu", "qa", "om", "kw", "bh", "eg", "jo", "pk",
+  "co.uk", "org.uk", "ac.uk", "gov.uk", "sch.uk", "com.au", "net.au", "edu.au", "gov.au",
+  "ac.ae", "co.ae", "gov.ae", "sch.ae", "com.sa", "edu.sa", "gov.sa", "sch.sa", "co.in", "ac.in", "edu.in",
+  "com.br", "co.jp", "co.za", "ac.za", "com.cn", "com.tr", "edu.tr", "com.qa", "edu.qa", "com.eg", "edu.eg",
+  "github.io", "herokuapp.com", "azurewebsites.net", "cloudfront.net", "amazonaws.com", "appspot.com",
+  "web.app", "firebaseapp.com", "netlify.app", "vercel.app", "pages.dev", "workers.dev", "blob.core.windows.net"
+]);
+
+const HOST_RE = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+/** "host" or "*.host" -> normalised pattern, or null when invalid (no scheme/path/port/userinfo, no bare public-suffix wildcard). */
+export function normalizeSitePattern(value) {
+  if (typeof value !== "string") return null;
+  let p = value.trim().toLowerCase();
+  while (p.endsWith(".")) p = p.slice(0, -1);
+  if (!p || p.length > 255) return null;
+  const wildcard = p.startsWith("*.");
+  const host = wildcard ? p.slice(2) : p;
+  if (host.includes("*") || !HOST_RE.test(host)) return null;
+  if (wildcard) {
+    if (host.split(".").length < 2 || PUBLIC_SUFFIXES.has(host)) return null;
+    return "*." + host;
+  }
+  return host;
+}
+

@@ -324,3 +324,59 @@ test("stale: readiness screen gets a grace period, a running exam does not", asy
   assert.equal(isStale(running, started + 36_000), true, "3 missed heartbeats plus 5 s is stale");
   assert.equal(isStale({ ...running, status: "released" }, started + 999_999), false, "only active sessions go stale");
 });
+
+test("external-website exams: validation, policy, start address, finish and release", async () => {
+  const bad = async (body, code) => {
+    const r = await t.admin("POST", "/api/v1/admin/exams", { code: "EXT" + Math.random().toString(16).slice(2, 7).toUpperCase(), title: "Ext", durationMinutes: 30, kind: "external", ...body });
+    assert.equal(r.json?.error?.code, code, `${JSON.stringify(body)} -> ${r.text}`);
+  };
+  await bad({}, "INVALID_START_URL");
+  await bad({ startUrl: "http://www.testwise.com/" }, "INVALID_START_URL");
+  await bad({ startUrl: "https://user:pw@www.testwise.com/" }, "INVALID_START_URL");
+  await bad({ startUrl: "https://www.testwise.com/", allowedSites: ["*.com"] }, "INVALID_SITE");
+  await bad({ startUrl: "https://www.testwise.com/", allowedSites: ["https://cdn.example.com/x"] }, "INVALID_SITE");
+  await bad({ startUrl: "https://www.testwise.com/", allowedSites: ["a*.example.com"] }, "INVALID_SITE");
+  await bad({ startUrl: "https://www.testwise.com/", allowedSites: Array.from({ length: 49 }, (_, i) => `s${i}.example.com`) }, "INVALID_SITE");
+  const kindBad = await t.admin("POST", "/api/v1/admin/exams", { code: "EXTKIND", title: "x", durationMinutes: 5, kind: "quiz" });
+  assert.equal(kindBad.json.error.code, "INVALID_REQUEST");
+
+  const created = await t.admin("POST", "/api/v1/admin/exams", {
+    code: "CAT4X", title: "CAT4 on Testwise", durationMinutes: 60, kind: "external", releaseOnSubmit: "auto",
+    startUrl: "https://www.testwise.com/", allowedSites: [" *.Testwise.com ", "accounts.google.com", "*.testwise.com"]
+  });
+  assert.equal(created.status, 200, created.text);
+  assert.equal(created.json.kind, "external");
+  assert.equal(created.json.startUrl, "https://www.testwise.com/");
+  assert.deepEqual(created.json.allowedSites, ["*.testwise.com", "accounts.google.com"], "normalised and de-duplicated");
+
+  const device = await t.enroll("school");
+  const student = t.newStudent();
+  const s = await t.startSession(device, { studentCode: student, examCode: "CAT4X" });
+  assert.equal(s.status, 200, s.text);
+  assert.equal(s.json.examUrl, "https://www.testwise.com/", "external exams open the start address, no launch link");
+  assert.equal(s.json.policy.examMode, "external");
+  assert.deepEqual(s.json.policy.allowedSites, ["www.testwise.com", "testwise.com", "*.testwise.com", "accounts.google.com"]);
+  assert.ok(s.json.policy.allowedDomains.includes("*.testwise.com") && !s.json.policy.allowedDomains.includes("127.0.0.1"), JSON.stringify(s.json.policy.allowedDomains));
+
+  // The questions routes do not apply.
+  const q = await t.dev("GET", `/api/v1/sessions/${s.json.sessionId}/questions`, device, s.json);
+  assert.equal(q.json.error.code, "NOT_A_QUESTIONS_EXAM");
+
+  // "I have finished" uses submit; auto release queues a signed RELEASE.
+  const fin = await t.dev("POST", `/api/v1/sessions/${s.json.sessionId}/submit`, device, s.json, {});
+  assert.equal(fin.json.release, "auto");
+  const hb = await t.dev("POST", `/api/v1/sessions/${s.json.sessionId}/heartbeat`, device, s.json, { status: "locked" });
+  assert.equal(hb.json.command?.type, "RELEASE");
+  assert.ok(hb.json.command.authorization?.signature, "release is signed");
+
+  // Questions exams are unchanged.
+  const qs = await t.startSession(await t.enroll("school"), { studentCode: t.newStudent(), examCode: "DEMO" });
+  assert.equal(qs.json.policy.examMode, "questions");
+  assert.deepEqual(qs.json.policy.allowedSites, []);
+  assert.match(qs.json.examUrl, /\/exam\/launch\?lt=/);
+
+  // Switching an exam back to questions keeps working.
+  const back = await t.admin("PUT", "/api/v1/admin/exams/CAT4X", { kind: "questions" });
+  assert.equal(back.status, 200, back.text);
+  assert.equal(back.json.kind, "questions");
+});

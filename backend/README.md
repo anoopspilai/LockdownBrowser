@@ -27,6 +27,27 @@ Creates exams `DEMO` (5 min, 5 questions, auto release), `MATH101` (60 min) and 
 (Demo Student) and `2001`–`2005`, and prints one `school` and one `byod` enrollment token (single use, 24 h).
 Enter a token on the client's first run; use a student code and exam code to start.
 
+### External exam websites (CAT4, MAP, any link)
+
+An exam can run on another website instead of using questions written here. In the **Exams** tab, set
+**Exam type** to **External exam website**, then fill in:
+
+- **Start address:** the page the locked window opens, for example `https://www.testwise.com/`.
+  It must be `https://`. That site, with or without `www.`, is always allowed.
+- **Allowed sites:** other sites the exam needs, one per line, for example `*.testwise.com` or
+  `accounts.google.com`. `*.example.com` allows `example.com` and every sub-address. Wide patterns
+  such as `*.com` are refused.
+
+The student signs in to the app as usual, presses Start Exam, and the computer locks and opens the
+start address. They sign in on that website and take the test there. When done they press
+**I have finished**: with Release on submit set to `auto` they are released at once, with `teacher`
+they wait for you. The timer, release codes, Warn and Terminate work as for any exam.
+
+Pictures and scripts the exam website loads are always allowed. Page navigation, including frames and
+pop-up windows, is limited to the start site, the allowed sites and the exam's Resources links. A
+page that is blocked shows up in the **Events** timeline with its address, so after a test run you can
+add what the exam needs.
+
 ### Allowed links (Resources)
 
 Links added to an exam appear in the app's **Resources** menu. How they behave:

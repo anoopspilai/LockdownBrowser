@@ -53,6 +53,9 @@ public partial class ScriptDialogOverlay : UserControl
             case "beforeunload": TitleText.Text = "Leave this page?"; break;
             default: TitleText.Text = "Message from the exam page"; break;
         }
+        if (!string.IsNullOrEmpty(request.Title)) TitleText.Text = request.Title;
+        OkButton.Content = string.IsNullOrEmpty(request.OkText) ? "OK" : request.OkText;
+        CancelButton.Content = string.IsNullOrEmpty(request.CancelText) ? "Cancel" : request.CancelText;
         MessageText.Text = request.Message;
         InputBox.Visibility = request.HasInput ? Visibility.Visible : Visibility.Collapsed;
         CancelButton.Visibility = request.HasCancel ? Visibility.Visible : Visibility.Collapsed;
@@ -62,7 +65,9 @@ public partial class ScriptDialogOverlay : UserControl
     {
         try
         {
-            if (InputBox.Visibility == Visibility.Visible) InputBox.Focus(); else OkButton.Focus();
+            if (InputBox.Visibility == Visibility.Visible) InputBox.Focus();
+            else if (_model?.Request.FocusCancel == true && CancelButton.Visibility == Visibility.Visible) CancelButton.Focus();
+            else OkButton.Focus();
         }
         catch
         {

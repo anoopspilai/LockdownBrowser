@@ -9,7 +9,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_V1 = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
 
 /** Ordered migrations. Add a new entry to change the schema; never edit an applied one. */
-const MIGRATIONS = [{ version: 1, sql: SCHEMA_V1 }];
+const MIGRATIONS = [
+  { version: 1, sql: SCHEMA_V1 },
+  // v2 (CONTRACT §11): external-website exams.
+  {
+    version: 2,
+    sql: `ALTER TABLE exams ADD COLUMN kind TEXT NOT NULL DEFAULT 'questions' CHECK (kind IN ('questions','external'));
+          ALTER TABLE exams ADD COLUMN start_url TEXT;
+          ALTER TABLE exams ADD COLUMN allowed_sites_json TEXT NOT NULL DEFAULT '[]';`
+  }
+];
 
 export function openDb(dbPath) {
   if (dbPath !== ":memory:") fs.mkdirSync(path.dirname(dbPath), { recursive: true });

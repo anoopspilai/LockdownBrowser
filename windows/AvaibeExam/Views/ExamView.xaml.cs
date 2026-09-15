@@ -77,6 +77,8 @@ public partial class ExamView : UserControl
             case nameof(AppState.ScriptDialog):
             case nameof(AppState.IsOnResourcePage):
             case nameof(AppState.BlockedNotice):
+            case nameof(AppState.IsExternalExam):
+            case nameof(AppState.CanFinishExam):
                 Render();
                 break;
         }
@@ -154,13 +156,18 @@ public partial class ExamView : UserControl
     private void RenderResources()
     {
         var links = _state.AllowedLinks;
-        if (links == null || links.Count == 0)
+        var hasLinks = links != null && links.Count > 0;
+        var external = _state.IsExternalExam;
+        FinishedButton.Visibility = external ? Visibility.Visible : Visibility.Collapsed;
+        FinishedButton.IsEnabled = external && _state.CanFinishExam;
+        if (!hasLinks && !external)
         {
             ResourcesPanel.Visibility = Visibility.Collapsed;
             return;
         }
         ResourcesPanel.Visibility = Visibility.Visible;
-        if (!ReferenceEquals(ResourcesBox.ItemsSource, links))
+        ResourcesPicker.Visibility = hasLinks ? Visibility.Visible : Visibility.Collapsed;
+        if (hasLinks && !ReferenceEquals(ResourcesBox.ItemsSource, links))
         {
             _resettingResources = true;
             try
@@ -199,6 +206,13 @@ public partial class ExamView : UserControl
     private void BackToExamButton_Click(object sender, RoutedEventArgs e)
     {
         _state.BackToExam();
+    }
+
+    private void FinishedButton_Click(object sender, RoutedEventArgs e)
+    {
+        FinishedButton.IsEnabled = false;   // re-enabled by Render if the student cancels
+        _state.RequestStudentFinished();
+        Render();
     }
 
     private void RenderBadge(LockdownMode mode)
