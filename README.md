@@ -41,7 +41,8 @@ cd windows
 ```
 
 **3. Sign in** with one of the enrollment tokens printed by the seed command, student code `1025`,
-and exam code `DEMO` (5 minutes). Press **Continue**, then **Start Exam**.
+and exam code `DEMO` (5 minutes). If you set an **access code** on an exam in the teacher console,
+type it in the Access code box; otherwise leave it blank. Press **Continue**, then **Start Exam**.
 
 **4. Release the student** from the teacher console with **Remote release**, or give them a
 one-time **Release code**.

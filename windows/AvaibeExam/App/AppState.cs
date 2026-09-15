@@ -124,6 +124,7 @@ public sealed class AppState : ObservableObject
     private string _enrollmentTokenText = string.Empty;
     private string _studentCode;
     private string _examCode;
+    private string _accessCode = string.Empty;
     private Enrollment? _enrollment;
     private bool _isBusy;
     private string _busyText = string.Empty;
@@ -164,6 +165,8 @@ public sealed class AppState : ObservableObject
     public string EnrollmentTokenText { get => _enrollmentTokenText; set => Set(ref _enrollmentTokenText, value); }
     public string StudentCode { get => _studentCode; set => Set(ref _studentCode, value); }
     public string ExamCode { get => _examCode; set => Set(ref _examCode, value); }
+    /// <summary>Only needed when the teacher set an access code on the exam. Never saved to settings.</summary>
+    public string AccessCode { get => _accessCode; set => Set(ref _accessCode, value ?? string.Empty); }
 
     public Enrollment? Enrollment
     {
@@ -674,6 +677,7 @@ public sealed class AppState : ObservableObject
             DeviceId = enrollment.DeviceId,
             Preflight = raw.Report,
             PreflightExtras = raw.Extras,
+            AccessCode = SessionStartRequest.NormalizeAccessCode(this.AccessCode),
         };
         try
         {
@@ -689,6 +693,7 @@ public sealed class AppState : ObservableObject
             Policy = policy;
             HasServerPolicy = true;
             Api.SetSessionToken(response.SessionToken);
+            AccessCode = string.Empty;   // accepted; do not keep it longer than needed
             ReplacePreflightItems(Preflight.Items(raw, Policy, _minClientVersionFromEnroll));
             _expiresAt = response.ExpiresAtDate;
             RemainingSeconds = ClampedRemaining(_expiresAt);

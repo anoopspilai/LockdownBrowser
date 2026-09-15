@@ -1,6 +1,6 @@
 // Session start (CONTRACT §10.2), policy assembly (§10.3), launch tokens, admin views, stale sweep (§10.6).
 import { HttpError, nowIso, isoIn, isObject, newSessionId, newToken, sha256hex, safeEqual, compareVersions, clampInt, str, cleanHost, secondsUntil, isPast, SESSION_ID_RE } from "../util.js";
-import { transaction } from "../db.js";
+import { transaction, rateLimit } from "../db.js";
 import * as exams from "./exams.js";
 import * as students from "./students.js";
 import * as events from "./events.js";
@@ -87,6 +87,45 @@ export function policyOf(row) {
   return JSON.parse(row.policy_json);
 }
 
+export const ACCESS_CODE_MAX_FAILURES = 10;
+export const ACCESS_CODE_WINDOW_MS = 15 * 60_000;
+
+/**
+ * Exam access code check with a per-device, per-exam failure limit. A missing code and a wrong
+ * code get separate, plain messages so the student knows what to do. After
+ * ACCESS_CODE_MAX_FAILURES wrong codes in a fixed 15-minute window the device is locked out of
+ * that exam until the window ends (even the correct code is refused, so guessing cannot win),
+ * and one high-severity incident is raised for the teacher.
+ */
+function checkAccessCodeWithLimit(ctx, { exam, student, device, provided }) {
+  const { db } = ctx;
+  const key = `access-code:${device.id}:${exam.id}`;
+  const now = Date.now();
+  const windowStart = now - (now % ACCESS_CODE_WINDOW_MS);
+  const row = db.prepare("SELECT window_start, count FROM rate_limits WHERE key = ?").get(key);
+  if (row && row.window_start === windowStart && row.count >= ACCESS_CODE_MAX_FAILURES) {
+    throw new HttpError(429, "ACCESS_CODE_LOCKED", "Too many wrong access codes on this device. Wait 15 minutes, or ask your teacher.");
+  }
+  const code = str(provided, 64);
+  if (!code) {
+    throw new HttpError(403, "ACCESS_CODE_REQUIRED", "This exam needs an access code. Ask your teacher for it and type it in the Access code box.");
+  }
+  if (exams.checkAccessCode(exam, code)) return;
+
+  rateLimit(db, key, ACCESS_CODE_MAX_FAILURES, ACCESS_CODE_WINDOW_MS);
+  const after = db.prepare("SELECT count FROM rate_limits WHERE key = ?").get(key);
+  if (after && after.count === ACCESS_CODE_MAX_FAILURES) {
+    incidents.raise(ctx, {
+      studentId: student.id,
+      examId: exam.id,
+      type: "ACCESS_CODE_LOCKED",
+      severity: "high",
+      detail: `Device ${device.id} entered ${ACCESS_CODE_MAX_FAILURES} wrong access codes; locked out for up to 15 minutes`
+    });
+  }
+  throw new HttpError(403, "INVALID_ACCESS_CODE", "The access code is not correct. Check it with your teacher.");
+}
+
 /** Starts a session. `device` is the authenticated device row; body is the client request. */
 export function start(ctx, { body, device, req, ip, clientVersionHeader }) {
   const { db, config } = ctx;
@@ -102,9 +141,7 @@ export function start(ctx, { body, device, req, ip, clientVersionHeader }) {
     throw new HttpError(403, "NOT_ASSIGNED", "This student is not assigned to this exam");
   }
   if (!exams.isWindowOpen(exam)) throw new HttpError(403, "EXAM_CLOSED", "This exam is not open right now");
-  if (!exams.checkAccessCode(exam, body.accessCode)) {
-    throw new HttpError(403, body.accessCode === undefined ? "ACCESS_CODE_REQUIRED" : "INVALID_ACCESS_CODE", "This exam requires a valid access code");
-  }
+  if (exam.access_code_hash) checkAccessCodeWithLimit(ctx, { exam, student, device, provided: body.accessCode });
 
   const baseUrl = baseUrlFor(ctx, req);
   const policy = assemblePolicy(ctx, exam, device, baseUrl);

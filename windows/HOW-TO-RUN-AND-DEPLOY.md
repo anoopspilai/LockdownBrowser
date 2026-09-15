@@ -181,8 +181,9 @@ The most likely first-build errors:
 |---|---|
 | Backend URL | `http://localhost:4000` (already filled in) |
 | Enrollment token | A single-use token issued by the admin console of the v2 backend (`backend/`). Only asked the first time on each PC. **The old `mock-backend/` (v1) cannot enroll this client**: it does not send the server signing key, so enrollment fails with `ENROLL_NO_KEY`. Use the real backend in `backend/` for development. |
-| Student code | Any value, for example `1025` |
+| Student code | A student that exists in the teacher console, for example `1025` from the demo data |
 | Exam code | `DEMO` (5 minutes), `MATH101` (60 minutes) or `SCI202` (45 minutes) |
+| Access code | Only if the teacher set one on the exam in the console. Leave it blank otherwise. After 10 wrong codes the PC is locked out of that exam for 15 minutes. |
 
 Press **Continue**.
 

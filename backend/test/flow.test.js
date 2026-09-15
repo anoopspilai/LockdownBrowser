@@ -272,3 +272,33 @@ test("exam window, assignment and access code gates", async () => {
   assert.equal((await t.startSession(device, { studentCode: "9999", examCode: "GATED", accessCode: "letmein" })).json.error.code, "STUDENT_NOT_FOUND");
   assert.equal((await t.startSession(device, { studentCode: "1025", examCode: "NOPE" })).json.error.code, "EXAM_NOT_FOUND");
 });
+
+test("access code: clear messages, and a device is locked out after 10 wrong codes", async () => {
+  await t.admin("POST", "/api/v1/admin/exams", { code: "CODED", title: "Coded", durationMinutes: 10, openToAll: true, accessCode: "blue-42", questions: [{ text: "?", options: ["a", "b"] }] });
+  const device = await t.enroll("school");
+  const student = t.newStudent();
+
+  const missing = await t.startSession(device, { studentCode: student, examCode: "CODED" });
+  assert.equal(missing.status, 403);
+  assert.equal(missing.json.error.code, "ACCESS_CODE_REQUIRED");
+  assert.match(missing.json.error.message, /needs an access code/);
+
+  const blank = await t.startSession(device, { studentCode: student, examCode: "CODED", accessCode: "   " });
+  assert.equal(blank.json.error.code, "ACCESS_CODE_REQUIRED", "whitespace-only counts as missing, not as a wrong guess");
+
+  for (let i = 1; i <= 10; i++) {
+    const wrong = await t.startSession(device, { studentCode: student, examCode: "CODED", accessCode: `guess-${i}` });
+    assert.equal(wrong.json.error.code, "INVALID_ACCESS_CODE", `attempt ${i}`);
+    assert.match(wrong.json.error.message, /not correct/);
+  }
+  const locked = await t.startSession(device, { studentCode: student, examCode: "CODED", accessCode: "blue-42" });
+  assert.equal(locked.status, 429, "even the right code is refused while locked, so guessing cannot win");
+  assert.equal(locked.json.error.code, "ACCESS_CODE_LOCKED");
+
+  const incidents = await t.admin("GET", "/api/v1/admin/incidents");
+  assert.equal(incidents.json.filter((i) => i.type === "ACCESS_CODE_LOCKED").length, 1, "one incident, not one per attempt");
+
+  const other = await t.enroll("school");
+  const ok = await t.startSession(other, { studentCode: student, examCode: "CODED", accessCode: " blue-42 " });
+  assert.equal(ok.status, 200, `lockout is per device; surrounding spaces are trimmed: ${ok.text}`);
+});

@@ -42,6 +42,13 @@
                     </StackPanel>
                 </Grid>
 
+                <StackPanel Margin="0,12,0,0">
+                    <TextBlock Style="{StaticResource FieldLabel}" Text="Access code (only if your teacher gave you one)"/>
+                    <TextBox x:Name="AccessCodeBox" Style="{StaticResource Field}"
+                             Text="{Binding AccessCode, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Style="{StaticResource CaptionText}" Margin="0,4,0,0" Text="Leave this blank if the exam has no access code."/>
+                </StackPanel>
+
                 <TextBlock x:Name="ErrorText" Style="{StaticResource ErrorText}" Margin="0,12,0,0" Visibility="Collapsed"/>
 
                 <DockPanel Margin="0,18,0,0" LastChildFill="False">

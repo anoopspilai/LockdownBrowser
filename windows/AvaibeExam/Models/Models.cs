@@ -231,6 +231,19 @@ public sealed class SessionStartRequest
     [JsonPropertyName("deviceId")] public string DeviceId { get; set; } = string.Empty;
     [JsonPropertyName("preflight")] public PreflightReport Preflight { get; set; } = new PreflightReport();
     [JsonPropertyName("preflightExtras")] public PreflightExtras? PreflightExtras { get; set; }
+
+    /// <summary>Only for exams where the teacher set an access code. Left out of the JSON when null.</summary>
+    [JsonPropertyName("accessCode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AccessCode { get; set; }
+
+    /// <summary>Trims the code and treats blank as "none", so a blank box is never sent as a wrong guess.</summary>
+    public static string? NormalizeAccessCode(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        if (trimmed.Length == 0) return null;
+        return trimmed.Length > 64 ? trimmed.Substring(0, 64) : trimmed;
+    }
 }
 
 public sealed class SessionStudent

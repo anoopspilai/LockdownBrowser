@@ -27,6 +27,28 @@ Creates exams `DEMO` (5 min, 5 questions, auto release), `MATH101` (60 min) and 
 (Demo Student) and `2001`–`2005`, and prints one `school` and one `byod` enrollment token (single use, 24 h).
 Enter a token on the client's first run; use a student code and exam code to start.
 
+### When a student cannot start an exam
+
+The app shows the server's message. The usual causes:
+
+| Code | Meaning | Fix |
+|---|---|---|
+| `ACCESS_CODE_REQUIRED` | The exam has an access code and none was typed | Give the student the code, or remove it in the Exams tab (type `-` in the access code box) |
+| `INVALID_ACCESS_CODE` | The typed access code is wrong | Check the code |
+| `ACCESS_CODE_LOCKED` | 10 wrong codes from this device within 15 minutes | Wait up to 15 minutes; an incident is shown in the Incidents tab |
+| `STUDENT_NOT_FOUND` | No student with that code | Add the student in the Students tab |
+| `NOT_ASSIGNED` | The exam is not open to all and the student is not assigned | Assign the student, or tick "open to all students" |
+| `EXAM_CLOSED` | The exam is closed or outside its open window | Open the exam |
+| `SESSION_ALREADY_ACTIVE` | The student already has a running session for this exam | Release that session in the Live tab |
+
+### Forgot the admin password
+
+Create another admin account, sign in with it, and manage the old one from the Staff tab:
+
+```sh
+AVAIBE_NEW_PASSWORD='choose-a-long-password' node scripts/create-admin.js admin2 admin
+```
+
 More staff users: `node scripts/create-admin.js <username> [admin|teacher|reviewer]` (or the Staff tab).
 
 ## Environment
