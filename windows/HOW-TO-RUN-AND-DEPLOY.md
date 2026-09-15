@@ -10,8 +10,9 @@ This guide has two parts.
 > It is ready for development and demos. It is **not** ready for production yet.
 >
 > - The Windows app compiles with no errors and its logic tests pass, but it has not yet been run on a Windows PC. Test every screen there first.
-> - The server in `mock-backend/` is a stand-in. It has no real sign-in, no database and no HTTPS.
->   **Never use it for a real exam.**
+> - The server in `backend/` is a working development server (staff login, database, signed release
+>   commands), but it is not production-hardened yet: no single sign-on, no multi-factor login, one
+>   server only. Section 11 lists what is missing. The old `mock-backend/` folder is reference only.
 >
 > Part 2 explains every gap and how to close it.
 
@@ -21,7 +22,7 @@ This guide has two parts.
 
 1. [What you need](#1-what-you-need)
 2. [Get the code](#2-get-the-code)
-3. [Start the mock server](#3-start-the-mock-server)
+3. [Start the server](#3-start-the-server)
 4. [Build the Windows app](#4-build-the-windows-app)
 5. [Run an exam from start to finish](#5-run-an-exam-from-start-to-finish)
 6. [If you get stuck in lockdown](#6-if-you-get-stuck-in-lockdown)
@@ -57,7 +58,7 @@ This guide has two parts.
 | Windows 11 | The app runs here. Windows 10 support ended on 14 October 2025, so use Windows 11. | Already installed |
 | .NET 8 SDK | The toolkit that turns the C# code into `AvaibeExam.exe`. | https://dotnet.microsoft.com/download/dotnet/8.0 |
 | WebView2 Runtime | The browser engine that shows the exam page inside the app. | Already part of Windows 11. Otherwise https://developer.microsoft.com/microsoft-edge/webview2/ |
-| Node.js 18 or newer | Runs the mock server. | https://nodejs.org |
+| Node.js 24 or newer (LTS) | Runs the exam server and teacher console. Older versions lack the built-in database. | https://nodejs.org |
 | Git | Downloads the code. | https://git-scm.com/download/win |
 | Inno Setup 6.3 or newer | Only needed to build the installer. | https://jrsoftware.org/isdl.php |
 
@@ -73,7 +74,7 @@ node --version
 git --version
 ```
 
-You should see an `8.x` SDK listed, a Node version of `v18` or higher, and a Git version.
+You should see an `8.x` SDK listed, a Node version of `v24` or higher, and a Git version.
 
 **If PowerShell says a command "is not recognized"**, close PowerShell and open it again. Installers
 update the system path, and only new windows see the change.
@@ -94,27 +95,45 @@ cd LockdownBrowser
 
 If the repository is private, Git asks you to sign in to GitHub.
 
-## 3. Start the mock server
+## 3. Start the server
 
-The mock server pretends to be the exam platform. It gives the app its exam, receives heartbeats,
-and runs the teacher console.
+The server is the exam platform: it hands the app its exam, checks the student, receives heartbeats,
+signs release commands, and runs the teacher console. Run it **on the same Windows PC** for testing.
+The app only accepts plain `http://` for `localhost`; any other address must be `https://`
+(section 7).
 
-In your **first PowerShell window**:
+In your **first PowerShell window**, choose an admin password and start the server:
 
 ```powershell
-cd C:\dev\LockdownBrowser\mock-backend
+cd C:\dev\LockdownBrowser\backend
+$env:AVAIBE_ADMIN_PASSWORD = "choose-a-long-password"
 node server.js
 ```
 
-You should see a line ending with `listening on http://localhost:4000`. Leave this window open.
-Every request the app makes is printed here, which helps a lot when something goes wrong.
+The password is only used the very first time, to create the `admin` account. You should see a
+line saying the server is listening on port 4000. Leave this window open.
 
-Now open **http://localhost:4000/admin** in Edge or Chrome. This is the teacher console.
+In a **second PowerShell window**, load the demo exams and students:
+
+```powershell
+cd C:\dev\LockdownBrowser\backend
+npm run seed
+```
+
+This creates the exams `DEMO` (5 minutes), `MATH101` and `SCI202`, the students `1025` and
+`2001` to `2005`, and prints two **enrollment tokens**. Copy the `school` token; the app asks for it
+once on each PC.
+
+Open **http://localhost:4000/admin/** in Edge or Chrome and sign in as `admin` with the password you
+chose. This is the teacher console: **Live** shows students taking an exam, **Exams** edits exams,
+access codes and Resources links, **Devices** creates new enrollment tokens.
 
 | Problem | Fix |
 |---|---|
-| Windows Firewall asks about Node.js | Allow it on **Private networks**. If you only use this one PC, cancelling also works. |
-| `EADDRINUSE` error | Something already uses port 4000. Run `netstat -ano \| findstr :4000`, note the last number (the process ID), then `taskkill /PID <number> /F`. Or start on another port with `$env:PORT=5000; node server.js`. |
+| `node:sqlite` or "Cannot find module" error | Node.js is too old. Install version 24 or newer. |
+| Windows Firewall asks about Node.js | Cancel is fine when everything runs on this PC. |
+| `EADDRINUSE` error | Something already uses port 4000. Run `netstat -ano \| findstr :4000`, note the last number (the process ID), then `taskkill /PID <number> /F`. |
+| Forgot the admin password | `$env:AVAIBE_NEW_PASSWORD = "new-long-password"; node scripts\create-admin.js admin2 admin`, then sign in as `admin2`. |
 
 ## 4. Build the Windows app
 
@@ -172,17 +191,21 @@ The most likely first-build errors:
 ## 5. Run an exam from start to finish
 
 ```powershell
-.\scripts\run.ps1
+.\scripts\run.ps1 -Configuration Release
 ```
+
+This builds the Release app (the same build the installer ships) and opens it. Plain
+`.\scripts\run.ps1` builds a Debug app instead, which also honours the developer switches in
+section 6.
 
 **1. Login screen.** Fill in:
 
 | Field | Value |
 |---|---|
 | Backend URL | `http://localhost:4000` (already filled in) |
-| Enrollment token | A single-use token issued by the admin console of the v2 backend (`backend/`). Only asked the first time on each PC. **The old `mock-backend/` (v1) cannot enroll this client**: it does not send the server signing key, so enrollment fails with `ENROLL_NO_KEY`. Use the real backend in `backend/` for development. |
+| Enrollment token | The `school` token printed by `npm run seed`, or a new one from the console's **Devices** tab. Single use, valid 24 hours, asked only the first time on each PC. The old `mock-backend/` cannot enroll this app. |
 | Student code | A student that exists in the teacher console, for example `1025` from the demo data |
-| Exam code | `DEMO` (5 minutes), `MATH101` (60 minutes) or `SCI202` (45 minutes) |
+| Exam code | `DEMO` (5 minutes, releases automatically on submit), `MATH101` (60 minutes) or `SCI202` (45 minutes) |
 | Access code | Only if the teacher set one on the exam in the console. Leave it blank otherwise. After 10 wrong codes the PC is locked out of that exam for 15 minutes. |
 
 Press **Continue**.
@@ -210,8 +233,10 @@ mode, the number of displays, and a risk level. Click **Events** to see the time
 
 **6. Exit screen.** It says the lockdown is released. **Quit** now works.
 
-Also try **Warn** (a message appears on the student's screen), **Terminate**, submitting the exam
-(the app releases automatically), and letting the `DEMO` timer run out.
+Also try **Resources** in the status strip (links the teacher added to the exam) and **Back to
+exam**, **Warn** (a message appears on the student's screen), **Terminate**, submitting the exam
+(`DEMO` releases automatically; other exams wait for the teacher), and letting the `DEMO` timer run
+out.
 
 ## 6. If you get stuck in lockdown
 
@@ -248,21 +273,22 @@ Other things to know about a locked exam:
 
 ## 7. Use a server on another computer
 
-**On the server computer:**
+The app refuses plain `http://` for any address other than `localhost`, so a teacher-console server
+on another computer must use **HTTPS with a certificate this PC trusts**. A self-signed certificate
+made on another computer is not trusted by Windows, and the app will not connect.
 
-1. Run `node server.js` in the `mock-backend` folder.
-2. Allow Node.js through that computer's firewall on the private network.
-3. Find its IP address on the local network, for example `192.168.1.20`.
+- **For testing:** run the server on the same PC as the app (section 3).
+- **For a school:** host the server under a real domain name with a certificate from a public
+  certificate authority, for example `https://exam.yourschool.example`. Start it with
+  `AVAIBE_TLS_CERT` and `AVAIBE_TLS_KEY`, or put it behind a reverse proxy that handles HTTPS and
+  set `AVAIBE_PUBLIC_BASE_URL`. See `backend/README.md`.
 
-**In the teacher console:** open the **Policy** panel, add that IP address to **allowedDomains**,
-and click **Save**. The app blocks any page whose address is not on this list, so without this
-step the exam page is blocked. Policy changes apply to exams started after you save.
+On each exam PC, type that address in the **Backend URL** box on the login screen. IT can also
+preset it for every PC in the registry value `HKLM\SOFTWARE\Avaibe\Exam\BaseUrl`, which makes
+the box read-only.
 
-**On the exam PC:**
-
-```powershell
-.\scripts\run.ps1 -BaseUrl http://192.168.1.20:4000
-```
+The exam page's own server is always allowed. Links the teacher adds to an exam under **Resources**
+are allowed automatically; you do not edit `allowedDomains` by hand.
 
 ## 8. Logs and resetting a PC
 
@@ -318,7 +344,7 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\AvaibeExam"
 Production has three layers, and **all three** must be ready:
 
 1. **The Windows app**: compiled, hardened, signed and packaged. Sections 10 and 12.
-2. **The server**: a real platform that replaces the mock. Section 11.
+2. **The server**: `backend/`, hardened for production. Section 11.
 3. **The PCs**: configured and managed by school IT. Sections 13 to 17.
 
 ## 10. Must fix in the Windows app
@@ -356,33 +382,32 @@ When you release a new version, change the version number in **three places** so
 
 ## 11. Build a real server
 
-`mock-backend/server.js` shows exactly what the app expects from a server. A production server must
-do the same job **safely**. Use it as the reference, not as the product.
+`backend/` is a working server that implements everything the app expects. Before a real rollout
+it still needs the items marked below.
 
 ### What the real server must have
 
-| Requirement | Why | The mock today |
+| Requirement | Why | `backend/` today |
 |---|---|---|
-| **HTTPS everywhere**, with HSTS | Protects sessions, answers and release codes in transit. | HTTP only |
-| **Real student sign-in**, such as the school's single sign-on | Stops anyone sitting an exam as someone else. | Accepts any student code |
-| **Staff sign-in with multi-factor authentication and roles**: teacher, exam manager, IT admin, reviewer | Only the right teacher can release or terminate a student. | The console has no login |
-| **A database**, for example PostgreSQL | Data survives restarts and crashes. | Memory only. Restarting loses everything. |
-| **Short-lived session tokens bound to one device** | A copied token is useless on another PC. | Basic tokens |
-| **A limit on wrong release-code guesses** | A 6-digit code has 1,000,000 possible values. Unlimited guessing could find it. Lock the session after a few wrong tries and alert the teacher. | No limit |
-| **The exam page served with a secure, http-only cookie** | The mock hands the session token to the exam page through an unauthenticated `page-token` address. That is a development shortcut only. | Insecure shortcut |
-| **Append-only event storage and an audit log** that records who released whom, when and why | Needed for disputes, appeals and incident reviews. | Memory only, no reasons recorded |
-| **Server-side answer autosave and time** | The server, not the PC, decides the time left and keeps the answers. | Answers are not saved |
-| **Rate limiting and a web application firewall** | Protects the service from abuse and overload. | None |
-| **Monitoring and alerts** for missed heartbeats, error rates and slow responses | Problems are seen during the exam, not after. | Console only |
-| **Backups with a tested restore** | Recovery from mistakes and failures. | None |
-| **Secrets in a secrets manager** | Keys and passwords never live in code. | Not applicable |
+| **HTTPS everywhere**, with HSTS | Protects sessions, answers and release codes in transit. | HTTPS with HSTS when given a certificate; plain HTTP only for localhost testing |
+| **Real student sign-in**, such as the school's single sign-on | Stops anyone sitting an exam as someone else. | **Missing.** The student code must exist, but there is no single sign-on |
+| **Staff sign-in with multi-factor authentication and roles**: teacher, exam manager, IT admin, reviewer | Only the right teacher can release or terminate a student. | Password login with lockout and roles (admin, teacher, reviewer). **Multi-factor missing** |
+| **A database**, for example PostgreSQL | Data survives restarts and crashes. | SQLite file on one server. Fine for a pilot; use a managed database to scale |
+| **Short-lived session tokens bound to one device** | A copied token is useless on another PC. | Done: session token bound to the session and the device token |
+| **A limit on wrong release-code guesses** | A 6-digit code has 1,000,000 possible values. Unlimited guessing could find it. Lock the session after a few wrong tries and alert the teacher. | Done: locked after 5 wrong tries, incident raised |
+| **The exam page served with a secure, http-only cookie** | The page must never receive a token it could leak. | Done |
+| **Append-only event storage and an audit log** that records who released whom, when and why | Needed for disputes, appeals and incident reviews. | Done: append-only events and audit log, reasons required |
+| **Server-side answer autosave and time** | The server, not the PC, decides the time left and keeps the answers. | Done |
+| **Rate limiting and a web application firewall** | Protects the service from abuse and overload. | Rate limits on enrollment, events and access codes. **No firewall** |
+| **Monitoring and alerts** for missed heartbeats, error rates and slow responses | Problems are seen during the exam, not after. | Stale sessions and incidents in the console. **No external alerting** |
+| **Backups with a tested restore** | Recovery from mistakes and failures. | **Missing.** Back up `backend/data` yourself |
+| **Secrets in a secrets manager** | Keys and passwords never live in code. | The signing key is stored in the database. **Move it to a key vault** |
 | **Accurate server time** (NTP) | Release codes expire after 60 seconds, so clocks must be right. | System clock |
-| **Independent security testing** (penetration test) before rollout | Finds weaknesses before students do. | Not done |
+| **Independent security testing** (penetration test) before rollout | Finds weaknesses before students do. | **Not done** |
 
 ### What the real server must implement
 
-The app calls these endpoints. Request and response shapes can be copied from
-`mock-backend/server.js`.
+The app calls these endpoints; `backend/` implements all of them, with details in `backend/README.md`.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -700,7 +725,7 @@ Be honest with schools about these limits.
 - [ ] Installer built with `make-installer.ps1` (it refuses Debug builds)
 
 **Server**
-- [ ] Real platform replaces the mock server
+- [ ] `backend/` hardened: single sign-on, multi-factor staff login, backups, key vault
 - [ ] HTTPS, student sign-in, staff multi-factor sign-in and roles
 - [ ] Database, backups and a tested restore
 - [ ] Wrong release-code guesses limited
