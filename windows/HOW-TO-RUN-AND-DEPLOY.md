@@ -9,7 +9,7 @@ This guide has two parts.
 >
 > It is ready for development and demos. It is **not** ready for production yet.
 >
-> - The Windows app has never been compiled on Windows. The first build may need small fixes.
+> - The Windows app compiles with no errors and its logic tests pass, but it has not yet been run on a Windows PC. Test every screen there first.
 > - The server in `mock-backend/` is a stand-in. It has no real sign-in, no database and no HTTPS.
 >   **Never use it for a real exam.**
 >
@@ -144,7 +144,7 @@ Published: C:\dev\LockdownBrowser\windows\publish\AvaibeExam.exe
 
 ### If the build shows errors
 
-This is expected the first time, because the code has never been compiled on Windows.
+The code compiles cleanly with the .NET 8 SDK, so errors usually mean a different SDK or WebView2 package version.
 
 A C# error looks like this:
 
@@ -327,7 +327,7 @@ Do all of these before any real exam.
 
 | # | Item | Why it matters | What to do |
 |---|---|---|---|
-| 1 | **Compile and fully test on Windows** | The code has never run on Windows. | Build it, fix errors, and pass every test in section 19. |
+| 1 | **Run and fully test on Windows** | The code compiles and its logic tests pass, but it has never run on a Windows PC. | Build it, run `dotnet run -c Release --project tests\AvaibeExam.LogicTests`, and pass every test in section 19. |
 | 2 | ~~Remove developer switches from release builds~~ **Done (v2 pass).** | The switches `AVAIBE_AUTO_RUN`, `AVAIBE_AUTO_EXIT_AFTER`, `AVAIBE_SMOKE_TEST` and `AVAIBE_BASE_URL` now exist only in Debug builds (`#if DEBUG` in `AppState.cs`, `App.xaml.cs`, `Constants.cs`). `build.ps1` writes Debug output to `publish-debug\` and Release to `publish\`; `make-installer.ps1` refuses anything that is not a Release build. | Nothing to do. Keep it that way: never hand a `publish-debug\` folder to a school. |
 | 3 | **Move from .NET 8 to .NET 10** | Microsoft stops security updates for .NET 8 on **10 November 2026**. .NET 10 is the current long-term release, supported until 14 November 2028. See https://dotnet.microsoft.com/platform/support/policy/dotnet-core | Install the .NET 10 SDK. In `AvaibeExam/AvaibeExam.csproj`, change `net8.0-windows10.0.19041.0` to `net10.0-windows10.0.19041.0`, update the NuGet packages, rebuild and retest. |
 | 4 | ~~Require HTTPS~~ **Done (v2 pass).** | The app now refuses any backend URL that is not `https://`, except `localhost` / `127.0.0.1` for development. The exam page URL must be https too. | Nothing to do. Give schools an https address. |

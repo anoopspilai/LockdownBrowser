@@ -8,11 +8,11 @@ until a teacher releases it or the exam is submitted.
 
 | Part | Folder | Status |
 |---|---|---|
-| Windows client (C#, .NET 8, WPF, WebView2) | [`windows/`](windows/README.md) | Code complete, not compiled yet |
+| Windows client (C#, .NET 8, WPF, WebView2) | [`windows/`](windows/README.md) | Compiles with no errors; logic tests pass; not yet run on a Windows PC |
 | Exam server and teacher console (Node.js, SQLite, signed release commands) | [`backend/`](backend/README.md) | Working, 22 tests, fuzzed |
 | Old in-memory mock (protocol v1, kept for reference only) | `mock-backend/` | Superseded. Current clients cannot enrol against it. |
 
-> The Windows client has not been built on Windows yet. The first build may need a few small fixes.
+> The Windows client compiles cleanly with the .NET 8 SDK and its logic tests pass, but it has not yet been run on a Windows PC.
 
 ## Quick start
 

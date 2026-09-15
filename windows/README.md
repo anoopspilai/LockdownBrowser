@@ -2,7 +2,7 @@
 
 The exam lockdown browser for Windows. Built with C# 12, .NET 8, WPF and WebView2.
 
-> This code has not been compiled on Windows yet. The first build may need a few small fixes.
+> The app compiles with no errors (Release and Debug, .NET 8 SDK) and its logic tests pass. It has not yet been run on a Windows PC, so test the screens there before a real exam.
 
 For the complete step-by-step guide, including everything needed for production, read
 [`HOW-TO-RUN-AND-DEPLOY.md`](HOW-TO-RUN-AND-DEPLOY.md).
@@ -31,6 +31,19 @@ The client implements CONTRACT §10:
 - The exam server from [`../backend`](../backend/README.md), running (the old `mock-backend` cannot enrol this client)
 
 No administrator rights are needed to run the app.
+
+## Logic tests
+
+UI-free checks of the sign-in messages, access code, allowed links, Back to exam, and signed release
+commands. Build the app in Release first, then:
+
+```powershell
+dotnet run -c Release --project tests\AvaibeExam.LogicTests
+```
+
+To also test against a running server, set `AVAIBE_TEST_BASE_URL`, `AVAIBE_TEST_ADMIN` and
+`AVAIBE_TEST_PASSWORD` first. That part creates a test student, exam and enrollment token, so point
+it at a test server, not a live one.
 
 ## Build and run
 

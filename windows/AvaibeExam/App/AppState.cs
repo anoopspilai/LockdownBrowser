@@ -545,6 +545,21 @@ public sealed class AppState : ObservableObject
 
     // ---- Login → Preflight -----------------------------------------------------------
 
+    /// <summary>
+    /// Field-specific sign-in messages (inputs already trimmed). A combined "both are required"
+    /// message would wrongly tell a student their code is missing when only the OTHER field was
+    /// blank or too long. Returns null when both fields are acceptable.
+    /// </summary>
+    public static string? ValidateLoginFields(string student, string exam)
+    {
+        if (student.Length == 0 && exam.Length == 0) return "Student code and exam code are required.";
+        if (student.Length == 0) return "Student code is required.";
+        if (exam.Length == 0) return "Exam code is required.";
+        if (student.Length > 64) return "Student code must be 64 characters or fewer.";
+        if (exam.Length > 64) return "Exam code must be 64 characters or fewer.";
+        return null;
+    }
+
     public void ContinueFromLogin()
     {
         if (IsBusy) return;
@@ -557,31 +572,10 @@ public sealed class AppState : ObservableObject
         }
         var student = (StudentCode ?? string.Empty).Trim();
         var exam = (ExamCode ?? string.Empty).Trim().ToUpperInvariant();
-        // Field-specific messages: a combined "both are required" message would wrongly tell a
-        // student their code is missing when only the OTHER field was left blank or too long.
-        if (student.Length == 0 && exam.Length == 0)
+        var fieldError = ValidateLoginFields(student, exam);
+        if (fieldError != null)
         {
-            LoginError = "Student code and exam code are required.";
-            return;
-        }
-        if (student.Length == 0)
-        {
-            LoginError = "Student code is required.";
-            return;
-        }
-        if (exam.Length == 0)
-        {
-            LoginError = "Exam code is required.";
-            return;
-        }
-        if (student.Length > 64)
-        {
-            LoginError = "Student code must be 64 characters or fewer.";
-            return;
-        }
-        if (exam.Length > 64)
-        {
-            LoginError = "Exam code must be 64 characters or fewer.";
+            LoginError = fieldError;
             return;
         }
         if (Enrollment == null && (EnrollmentTokenText ?? string.Empty).Trim().Length == 0)

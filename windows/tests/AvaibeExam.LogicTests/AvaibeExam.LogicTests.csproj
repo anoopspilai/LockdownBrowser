@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    UI-free logic tests for the Windows client. They run on Windows, macOS or Linux with the .NET 8 SDK.
+    Build the app first (Release), then:  dotnet run (Release configuration) with this project
+    To test a different build, set the MSBuild property AvaibeExamDll to that AvaibeExam.dll.
+    Live protocol checks run only when AVAIBE_TEST_BASE_URL, AVAIBE_TEST_ADMIN and AVAIBE_TEST_PASSWORD are set.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AvaibeExam.LogicTests</AssemblyName>
+    <AvaibeExamDll Condition="'$(AvaibeExamDll)' == ''">$(MSBuildThisFileDirectory)../../AvaibeExam/bin/Release/net8.0-windows10.0.19041.0/AvaibeExam.dll</AvaibeExamDll>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="AvaibeExam"><HintPath>$(AvaibeExamDll)</HintPath></Reference>
+  </ItemGroup>
+</Project>

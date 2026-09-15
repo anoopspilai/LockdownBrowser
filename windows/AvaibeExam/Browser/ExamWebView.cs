@@ -157,24 +157,12 @@ public sealed class ExamWebView
 
     // ---- Lifecycle -------------------------------------------------------------------
 
-    /// <summary>Creates the WPF control (must be added to the visual tree before InitializeAsync completes).</summary>
-    public WebView2 CreateControl(Policy policy, LockdownMode mode, string sessionId)
+    /// <summary>Builds the allowed-link prefixes and hosts from the policy (no UI; unit-testable).</summary>
+    internal void ConfigureLinks(Policy policy)
     {
-        Teardown();
         _policy = policy;
-        LockdownMode = mode;
-        _reloadedAfterFailure = false;
-        _initialized = false;
-        _firstNavigationSucceeded = false;
-        _examUrl = null;
-        _examOrigin = null;
-        _lastExamPageUrl = null;
-        _sessionId = sessionId ?? string.Empty;
-        _topLevelOnExam = true;
-        _userDataFolder = Constants.WebView2UserDataFolderFor(sessionId);
         _linkPrefixes.Clear();
         _extraAllowedHosts.Clear();
-        _lastBlockedHost.Clear();
         foreach (var link in policy.AllowedLinks)
         {
             if (Uri.TryCreate(link.Url, UriKind.Absolute, out var lu))
@@ -191,6 +179,50 @@ public sealed class ExamWebView
                 }
             }
         }
+    }
+
+    /// <summary>Test seam: sets the exam page and session without creating a WebView2.</summary>
+    internal void SetExamForTest(Uri examUrl, string sessionId)
+    {
+        _examUrl = examUrl;
+        _examOrigin = OriginOf(examUrl);
+        _sessionId = sessionId;
+        _firstNavigationSucceeded = true;
+        _topLevelOnExam = true;
+    }
+
+    /// <summary>The address "Back to exam" navigates to.</summary>
+    internal string? BackToExamTarget => _lastExamPageUrl ?? ExamPageUrl();
+
+    /// <summary>An allowed top-level navigation is starting: subresource filtering follows the page being opened.</summary>
+    internal void NoteTopLevelNavigation(Uri target)
+    {
+        if (target.Scheme == Uri.UriSchemeHttp || target.Scheme == Uri.UriSchemeHttps)
+        {
+            _topLevelOnExam = _examOrigin == null || OriginOf(target) == _examOrigin;
+        }
+    }
+
+    /// <summary>Subresource decision: strict host allow-list on the exam page; anything on an allowed resource page.</summary>
+    internal bool IsSubresourceAllowed(Uri u) => !_topLevelOnExam || IsHostAllowed(u.Host);
+
+    /// <summary>Creates the WPF control (must be added to the visual tree before InitializeAsync completes).</summary>
+    public WebView2 CreateControl(Policy policy, LockdownMode mode, string sessionId)
+    {
+        Teardown();
+        _policy = policy;
+        LockdownMode = mode;
+        _reloadedAfterFailure = false;
+        _initialized = false;
+        _firstNavigationSucceeded = false;
+        _examUrl = null;
+        _examOrigin = null;
+        _lastExamPageUrl = null;
+        _sessionId = sessionId;
+        _topLevelOnExam = true;
+        _userDataFolder = Constants.WebView2UserDataFolderFor(sessionId);
+        _lastBlockedHost.Clear();
+        ConfigureLinks(policy);
 
         var control = new WebView2
         {
@@ -370,7 +402,7 @@ public sealed class ExamWebView
     {
         var core = Control?.CoreWebView2;
         if (core == null) return false;
-        var target = _lastExamPageUrl ?? ExamPageUrl();
+        var target = BackToExamTarget;
         if (string.IsNullOrEmpty(target)) return false;
         Log.Info(LogCat, "Back to exam page");
         try { core.Navigate(target); } catch (Exception ex) { Log.Warn(LogCat, "Navigate failed: " + ex.GetType().Name); return false; }
@@ -609,11 +641,7 @@ public sealed class ExamWebView
             try { OnTopLevelBlocked?.Invoke(host); } catch (Exception ex) { Log.Warn(LogCat, "OnTopLevelBlocked handler failed: " + ex.GetType().Name); }
             return;
         }
-        // Allowed top-level navigation: subresource filtering follows the page being opened.
-        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var nu) && (nu.Scheme == Uri.UriSchemeHttp || nu.Scheme == Uri.UriSchemeHttps))
-        {
-            _topLevelOnExam = _examOrigin == null || OriginOf(nu) == _examOrigin;
-        }
+        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var nu)) NoteTopLevelNavigation(nu);
     }
 
     /// <summary>W-04: frames obey the same rule as the top-level document.</summary>
@@ -674,8 +702,7 @@ public sealed class ExamWebView
             var scheme = u.Scheme.ToLowerInvariant();
             if (scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss") { Refuse(e, uriText, "scheme-" + scheme); return; }
             // On an allowed resource page (not the exam page) its own assets may come from any host.
-            if (!_topLevelOnExam) return;
-            if (!IsHostAllowed(u.Host)) { Refuse(e, uriText, "host-not-allowed"); return; }
+            if (!IsSubresourceAllowed(u)) { Refuse(e, uriText, "host-not-allowed"); return; }
         }
         catch (Exception ex)
         {
