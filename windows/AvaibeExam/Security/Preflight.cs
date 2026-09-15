@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Principal;
 using System.Threading.Tasks;
@@ -27,6 +28,11 @@ public sealed class PreflightRaw
     public bool WebView2Available { get; set; }
     public string WebView2Detail { get; set; } = string.Empty;
     public string VirtualMachineDetail { get; set; } = string.Empty;
+    /// <summary>HKCU LowLevelHooksTimeout value in ms; 0 when absent (Windows default applies).</summary>
+    public int LowLevelHooksTimeoutMs { get; set; }
+    public string HookTimeoutDetail { get; set; } = string.Empty;
+    public bool DebuggerAttached { get; set; }
+    public string DebuggerDetail { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -67,9 +73,10 @@ public static class Preflight
         Log.Info(LogCat,
             $"Preflight: os={raw.Report.OsVersion} secureBoot={raw.Report.SipEnabled} mdm={raw.Report.MdmEnrolled} " +
             $"account={raw.Report.AccountType} displays={raw.Report.DisplayCount} sharing={raw.Report.ScreenSharingActive} " +
-            $"assignedAccess={raw.Report.AacEntitlementPresent} cam={AuthorizationStateConverter.Instance.ToWire(raw.Report.CameraAuthorized)} " +
+            $"assignedAccessHint={raw.Report.AssignedAccessHint} cam={AuthorizationStateConverter.Instance.ToWire(raw.Report.CameraAuthorized)} " +
             $"mic={AuthorizationStateConverter.Instance.ToWire(raw.Report.MicrophoneAuthorized)} online={online} " +
-            $"vm={raw.Extras.VirtualMachine} tpm={raw.Extras.TpmPresent} rdp={raw.Extras.RdpSession} edition={raw.Extras.Edition} webview2={raw.WebView2Available}");
+            $"vm={raw.Extras.VirtualMachine} tpm={raw.Extras.TpmPresent} rdp={raw.Extras.RdpSession} edition={raw.Extras.Edition} webview2={raw.WebView2Available} " +
+            $"hookTimeout={raw.LowLevelHooksTimeoutMs} debugger={raw.DebuggerAttached} (all client-reported)");
         return raw;
     }
 
@@ -125,11 +132,26 @@ public static class Preflight
             raw.ScreenSharingDetail = "No remote-control or capture processes detected";
         }
 
-        // Assigned Access (== aacEntitlementPresent on Windows)
+        // Assigned Access hint (§10.4): HKLM signal only; false unless present. ADVISORY.
         var aa = AssignedAccessDetector.Detect();
-        report.AacEntitlementPresent = aa.IsAssignedAccess;
-        extras.AssignedAccess = aa.IsAssignedAccess;
+        report.AacEntitlementPresent = aa.HklmSignal;
+        report.AssignedAccessHint = aa.HklmSignal;
+        extras.AssignedAccessHint = aa.HklmSignal;
         raw.AssignedAccessDetail = aa.Detail;
+
+        // Low-level hook timeout (W-19): a student could set it very low so Windows drops our hook.
+        var hookTimeout = ReadLowLevelHooksTimeout();
+        raw.LowLevelHooksTimeoutMs = hookTimeout;
+        extras.LowLevelHooksTimeoutMs = hookTimeout;
+        raw.HookTimeoutDetail = hookTimeout == 0
+            ? "Not set (Windows default; the hook liveness probe still runs)"
+            : "LowLevelHooksTimeout = " + hookTimeout + " ms" + (hookTimeout < 1000 ? " — below 1000 ms, Windows may drop the keyboard hook" : string.Empty);
+
+        // Debugger (§10 preflight item): managed or native debugger attached to this process.
+        var dbg = ReadDebugger();
+        raw.DebuggerAttached = dbg.attached;
+        raw.DebuggerDetail = dbg.detail;
+        extras.DebuggerAttached = dbg.attached;
 
         // Camera / microphone consent
         report.CameraAuthorized = ReadConsent("webcam");
@@ -396,6 +418,47 @@ public static class Preflight
         }
     }
 
+    /// <summary>HKCU\Control Panel\Desktop\LowLevelHooksTimeout (REG_DWORD ms, or REG_SZ); 0 when absent.</summary>
+    private static int ReadLowLevelHooksTimeout()
+    {
+        try
+        {
+            using var key = OpenHkcu(@"Control Panel\Desktop");
+            var value = key?.GetValue("LowLevelHooksTimeout");
+            if (value is int i) return Math.Max(0, i);
+            if (value is string s && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)) return Math.Max(0, parsed);
+            return 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static (bool attached, string detail) ReadDebugger()
+    {
+        var managed = false;
+        var native = false;
+        var remote = false;
+        try { managed = Debugger.IsAttached; } catch { /* ignore */ }
+        try { native = NativeMethods.IsDebuggerPresent(); } catch { /* ignore */ }
+        try
+        {
+            if (NativeMethods.CheckRemoteDebuggerPresent(NativeMethods.GetCurrentProcess(), out var r)) remote = r;
+        }
+        catch
+        {
+            // ignore
+        }
+        var attached = managed || native || remote;
+        var kinds = new List<string>();
+        if (managed) kinds.Add("managed");
+        if (native) kinds.Add("native");
+        if (remote) kinds.Add("remote");
+        var detail = attached ? "Debugger attached (" + string.Join(", ", kinds) + ")" : "No debugger attached";
+        return (attached, detail);
+    }
+
     private static (bool available, string detail) ReadWebView2()
     {
         try
@@ -448,12 +511,26 @@ public static class Preflight
             r.ScreenSharingActive ? PreflightStatus.Fail : PreflightStatus.Pass,
             raw.ScreenSharingDetail, isRequired: true));
 
-        items.Add(new PreflightItem(PreflightKind.AssignedAccess, "Assigned Access (kiosk session)",
-            r.AacEntitlementPresent ? PreflightStatus.Pass : (policy.RequireAAC ? PreflightStatus.Fail : PreflightStatus.Warning),
-            r.AacEntitlementPresent
-                ? raw.AssignedAccessDetail
+        items.Add(new PreflightItem(PreflightKind.AssignedAccess, "Assigned Access hint (client-reported)",
+            r.AssignedAccessHint ? PreflightStatus.Pass : (policy.RequireAAC ? PreflightStatus.Fail : PreflightStatus.Warning),
+            r.AssignedAccessHint
+                ? raw.AssignedAccessDetail + " — advisory; the server decides"
                 : raw.AssignedAccessDetail + " — kiosk fallback will be used" + (policy.RequireAAC ? " (policy requires Assigned Access)" : string.Empty),
             isRequired: policy.RequireAAC));
+
+        var hookOk = raw.LowLevelHooksTimeoutMs == 0 || raw.LowLevelHooksTimeoutMs >= 1000;
+        items.Add(new PreflightItem(PreflightKind.HookTimeout, "Low-level hook timeout (client-reported)",
+            hookOk ? PreflightStatus.Pass : PreflightStatus.Fail,
+            raw.HookTimeoutDetail, isRequired: true));
+
+#if DEBUG
+        const bool debuggerRequired = false; // a developer's debugger must not block a debug run
+#else
+        const bool debuggerRequired = true;
+#endif
+        items.Add(new PreflightItem(PreflightKind.Debugger, "Debugger attached (client-reported)",
+            raw.DebuggerAttached ? PreflightStatus.Fail : PreflightStatus.Pass,
+            raw.DebuggerDetail, isRequired: debuggerRequired));
 
         items.Add(new PreflightItem(PreflightKind.Camera, "Camera permission",
             r.CameraAuthorized == AuthorizationState.Authorized ? PreflightStatus.Pass : PreflightStatus.Warning,

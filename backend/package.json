@@ -1,0 +1,17 @@
+{
+  "name": "avaibe-exam-backend",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Avaibe Exam lockdown platform backend (protocol v2). Node.js built-ins only.",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/",
+    "seed": "node scripts/seed.js",
+    "create-admin": "node scripts/create-admin.js",
+    "dev-cert": "sh scripts/dev-cert.sh"
+  },
+  "dependencies": {}
+}

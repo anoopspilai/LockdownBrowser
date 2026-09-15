@@ -74,8 +74,13 @@ public abstract class MappedEnumConverter<T> : JsonConverter<T> where T : struct
             }
             return Fallback;
         }
-        // null, number, object... -> fallback (the reader is positioned on the value token; the
-        // serializer advances past it after we return).
+        // null, number, true/false: single tokens — nothing to skip. Object / array: the reader
+        // is on StartObject / StartArray and MUST be advanced to the matching end token, or the
+        // serializer's position is corrupted and the whole document fails to deserialize. (W-28)
+        if (reader.TokenType == JsonTokenType.StartObject || reader.TokenType == JsonTokenType.StartArray)
+        {
+            reader.Skip();
+        }
         return Fallback;
     }
 

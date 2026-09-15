@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avaibe Exam — Staff Console</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<header>
+  <h1><span class="brand">Avaibe Exam</span> · Staff Console</h1>
+  <nav class="tabs" id="tabs" hidden>
+    <button data-tab="live" class="active">Live</button>
+    <button data-tab="exams">Exams</button>
+    <button data-tab="students">Students</button>
+    <button data-tab="devices">Devices</button>
+    <button data-tab="incidents">Incidents</button>
+    <button data-tab="audit">Audit</button>
+    <button data-tab="staff" id="staffTabBtn" hidden>Staff</button>
+  </nav>
+  <span class="spacer"></span>
+  <span class="who" id="who"></span>
+  <span class="who" id="health"></span>
+  <button id="logoutBtn" hidden>Sign out</button>
+</header>
+
+<main id="loginView">
+  <section class="card login">
+    <div class="card-h">Sign in</div>
+    <form class="grid card-b" id="loginForm" autocomplete="on">
+      <label>Username <input type="text" name="username" autocomplete="username" required></label>
+      <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+      <div class="buttons"><button type="submit" class="primary">Sign in</button></div>
+      <div class="status" id="loginStatus"></div>
+    </form>
+    <div class="hint">Five failed attempts lock the account for 15 minutes. First-start admin password is printed by the server or set with AVAIBE_ADMIN_PASSWORD.</div>
+  </section>
+</main>
+
+<main id="appView" hidden>
+  <!-- LIVE -->
+  <section id="tab-live" class="tab">
+    <div class="card">
+      <div class="card-h">
+        <span>Live sessions <small id="sessionCount"></small></span>
+        <span class="actions">
+          <label class="muted"><input type="checkbox" id="showAll"> show ended sessions</label>
+          <small id="pollStatus">polling every 3 s</small>
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Session</th><th>Student</th><th>Exam</th><th>Status</th><th>Lockdown<span class="tag">client-reported</span></th>
+            <th>Displays<span class="tag">client-reported</span></th><th>Client ver.<span class="tag">advisory</span></th><th>Heartbeat</th><th>Risk</th><th>Events</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="hint">Lockdown mode, display count and client version are reported by the client and cannot be verified by the server. Kiosk/AAC enforcement (requireAAC) is decided from the device registry (Devices tab → "kiosk verified"). Every action asks for a reason and is written to the audit log. Release codes are 6 digits, single use, 60 s, bound to the session and its device.</div>
+    </div>
+  </section>
+
+  <!-- EXAMS -->
+  <section id="tab-exams" class="tab two" hidden>
+    <div class="card">
+      <div class="card-h"><span>Exams</span><button id="newExamBtn" class="primary">New exam</button></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Code</th><th>Title</th><th>Duration</th><th>Questions</th><th>Window</th><th>Release</th><th>Actions</th></tr></thead>
+        <tbody id="examRows"></tbody>
+      </table></div>
+    </div>
+    <div class="card" id="examEditor" hidden>
+      <div class="card-h"><span id="examEditorTitle">Exam</span><button id="closeExamEditor">Close</button></div>
+      <form class="grid card-b" id="examForm">
+        <div class="cols">
+          <label>Code <input type="text" name="code" placeholder="MATH101"></label>
+          <label>Duration (minutes) <input type="number" name="durationMinutes" min="1" max="1440" value="60"></label>
+        </div>
+        <label>Title <input type="text" name="title"></label>
+        <div class="cols">
+          <label>Release on submit <select name="releaseOnSubmit"><option value="teacher">teacher (wait for release)</option><option value="auto">auto</option></select></label>
+          <label>Access code (blank = none) <input type="text" name="accessCode" autocomplete="off" placeholder="unchanged"></label>
+        </div>
+        <div class="cols">
+          <label class="row">Open <input type="checkbox" name="isOpen" checked></label>
+          <label class="row">Open to all students <input type="checkbox" name="openToAll" checked></label>
+        </div>
+        <div class="cols">
+          <label>Open from (optional) <input type="datetime-local" name="openFrom"></label>
+          <label>Open until (optional) <input type="datetime-local" name="openUntil"></label>
+        </div>
+        <label>Assigned student codes (comma/space separated; used when not open to all) <textarea name="assignedStudentCodes" placeholder="2001, 2002"></textarea></label>
+
+        <div class="group">Questions</div>
+        <div id="questionList"></div>
+        <div class="buttons"><button type="button" id="addQuestion">Add question</button></div>
+
+        <div class="group">Allowed links (resources the student may open)</div>
+        <div id="linkList"></div>
+        <div class="buttons"><button type="button" id="addLink">Add link</button></div>
+        <small class="muted">URLs must be https:// or a path on this server (e.g. /resources/formula-sheet.html). allowedDomains is derived automatically from these.</small>
+
+        <div class="group">Policy overrides (blank = use defaults)</div>
+        <div class="cols">
+          <label class="row">Require SIP / Secure Boot <input type="checkbox" name="p_requireSIP"></label>
+          <label class="row">Require MDM <input type="checkbox" name="p_requireMDM"></label>
+          <label class="row">Require standard account <input type="checkbox" name="p_requireStandardAccount"></label>
+          <label class="row">Require AAC / kiosk (device must be kiosk-verified) <input type="checkbox" name="p_requireAAC"></label>
+          <label class="row">Block external display <input type="checkbox" name="p_blockExternalDisplay" checked></label>
+          <label class="row">Allow student release code <input type="checkbox" name="p_allowStudentReleaseCode" checked></label>
+          <label class="row">Allow clipboard <input type="checkbox" name="p_allowClipboard"></label>
+          <label class="row">Allow printing <input type="checkbox" name="p_allowPrinting"></label>
+        </div>
+        <div class="cols">
+          <label>External display action <select name="p_externalDisplayAction"><option>WARN</option><option>BLOCK_START</option><option>PAUSE</option><option>TERMINATE</option><option>FLAG</option></select></label>
+          <label>Heartbeat interval (2-120 s) <input type="number" name="p_heartbeatIntervalSeconds" min="2" max="120" value="10"></label>
+          <label>Event flush interval (1-300 s) <input type="number" name="p_eventFlushIntervalSeconds" min="1" max="300" value="5"></label>
+          <label>Offline grace (60-3600 s) <input type="number" name="p_offlineGraceSeconds" min="60" max="3600" value="600"></label>
+          <label>Min client version <input type="text" name="p_minClientVersion" value="0.1.0"></label>
+        </div>
+        <div class="buttons">
+          <button type="submit" class="primary">Save exam</button>
+          <button type="button" id="deleteExam" class="danger" hidden>Delete…</button>
+        </div>
+        <div class="status" id="examStatus"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- STUDENTS -->
+  <section id="tab-students" class="tab two" hidden>
+    <div class="card">
+      <div class="card-h"><span>Students <small id="studentCount"></small></span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Code</th><th>Name</th><th>Email</th><th>Actions</th></tr></thead>
+        <tbody id="studentRows"></tbody>
+      </table></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="card-h">Add student</div>
+        <form class="grid card-b" id="studentForm">
+          <label>Code <input type="text" name="code" required></label>
+          <label>Name <input type="text" name="name" required></label>
+          <label>Email (optional) <input type="text" name="email"></label>
+          <div class="buttons"><button type="submit" class="primary">Add</button></div>
+          <div class="status" id="studentStatus"></div>
+        </form>
+      </div>
+      <div class="card stack">
+        <div class="card-h">CSV import <small>code,name,email — existing codes are updated</small></div>
+        <form class="grid card-b" id="csvForm">
+          <textarea name="csv" placeholder="code,name,email&#10;3001,Ada Lovelace,ada@example.org"></textarea>
+          <div class="buttons"><button type="submit" class="primary">Import</button></div>
+          <div class="status" id="csvStatus"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEVICES -->
+  <section id="tab-devices" class="tab" hidden>
+    <div class="card">
+      <div class="card-h"><span>Enrollment tokens <small>single use, expire after 24 h; the token is shown once</small></span>
+        <form id="tokenForm" class="actions">
+          <select name="mode"><option value="school">school</option><option value="byod">byod</option></select>
+          <input type="text" name="label" class="label-input" placeholder="label (e.g. Lab 3 MacBook 12)">
+          <button type="submit" class="primary" id="tokenBtn">Create token</button>
+        </form>
+      </div>
+      <div id="tokenOnce" class="card-b" hidden></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Label</th><th>Mode</th><th>Status</th><th>Created</th><th>Expires</th><th>Device</th><th>Actions</th></tr></thead>
+        <tbody id="tokenRows"></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><span>Devices</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Device</th><th>Name</th><th>Mode</th><th>Platform</th><th>Client</th><th>Kiosk verified<span class="tag">server-side, set by admin</span></th><th>Last seen</th><th>Actions</th></tr></thead>
+        <tbody id="deviceRows"></tbody>
+      </table></div>
+      <div class="hint">"Kiosk verified" means an administrator confirmed (e.g. via MDM) that this device runs a real AAC / Assigned Access session. Exams with requireAAC only start on verified devices, regardless of what the client reports.</div>
+    </div>
+  </section>
+
+  <!-- INCIDENTS -->
+  <section id="tab-incidents" class="tab" hidden>
+    <div class="card">
+      <div class="card-h"><span>Incidents</span><label class="muted"><input type="checkbox" id="incidentsAll"> show resolved</label></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>When</th><th>Severity</th><th>Type</th><th>Student</th><th>Exam</th><th>Session</th><th>Detail</th><th>Resolution</th><th></th></tr></thead>
+        <tbody id="incidentRows"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- AUDIT -->
+  <section id="tab-audit" class="tab" hidden>
+    <div class="card">
+      <div class="card-h"><span>Audit log <small>append-only</small></span><button id="reloadAudit">Reload</button></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Reason</th><th>Detail</th><th>IP</th></tr></thead>
+        <tbody id="auditRows"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- STAFF -->
+  <section id="tab-staff" class="tab two" hidden>
+    <div class="card">
+      <div class="card-h">Staff users</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody id="staffRows"></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <div class="card-h">Add staff user</div>
+      <form class="grid card-b" id="staffForm" autocomplete="off">
+        <label>Username <input type="text" name="username" autocomplete="off" required></label>
+        <label>Password (10+ chars) <input type="password" name="password" autocomplete="new-password" required></label>
+        <label>Role <select name="role"><option>teacher</option><option>reviewer</option><option>admin</option></select></label>
+        <div class="buttons"><button type="submit" class="primary">Create</button></div>
+        <div class="status" id="staffStatus"></div>
+      </form>
+      <div class="hint">admin: everything. teacher: exams, students, live actions, incidents. reviewer: read-only.</div>
+    </div>
+  </section>
+</main>
+
+<script src="/admin/admin.js"></script>
+</body>
+</html>

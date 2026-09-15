@@ -10,16 +10,18 @@
                            Text="Secure exam client for Windows"/>
                 <Separator Margin="0,14,0,14"/>
 
-                <TextBlock Style="{StaticResource FieldLabel}" Text="Backend URL"/>
+                <TextBlock Style="{StaticResource FieldLabel}" Text="Backend URL (https required; http only for localhost)"/>
                 <TextBox x:Name="BaseUrlBox" Style="{StaticResource Field}"
                          Text="{Binding BaseUrlText, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBlock x:Name="BaseUrlLockedText" Style="{StaticResource CaptionText}" Margin="0,4,0,0" Visibility="Collapsed"
+                           Text="Set by your school's IT (HKLM\SOFTWARE\Avaibe\Exam). It cannot be changed here."/>
 
                 <StackPanel x:Name="EnrollPanel" Margin="0,12,0,0">
                     <TextBlock Style="{StaticResource FieldLabel}" Text="Enrollment token"/>
                     <TextBox x:Name="TokenBox" Style="{StaticResource Field}"
                              Text="{Binding EnrollmentTokenText, UpdateSourceTrigger=PropertyChanged}"/>
                     <TextBlock Style="{StaticResource CaptionText}" Margin="0,4,0,0"
-                               Text="First run on this device: the enrollment token is provided by your school (mock: SCHOOL-DEMO or BYOD-DEMO)."/>
+                               Text="First run on this device (or after an update): the single-use enrollment token is issued by your school's administrator."/>
                 </StackPanel>
 
                 <Grid Margin="0,12,0,0">

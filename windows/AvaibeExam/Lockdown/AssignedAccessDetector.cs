@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using AvaibeExam.Util;
 using Microsoft.Win32;
 
@@ -7,57 +6,69 @@ namespace AvaibeExam.Lockdown;
 
 public sealed class AssignedAccessResult
 {
-    public AssignedAccessResult(bool isAssignedAccess, string detail)
+    public AssignedAccessResult(bool hklmSignal, string detail)
     {
-        IsAssignedAccess = isAssignedAccess;
+        HklmSignal = hklmSignal;
         Detail = detail;
     }
 
-    public bool IsAssignedAccess { get; }
+    /// <summary>
+    /// true when a MACHINE-WIDE kiosk configuration exists (HKLM, admin-only writable). This is an
+    /// advisory HINT (§10.4 "assignedAccessHint"): it proves an administrator configured Shell
+    /// Launcher / Assigned Access on this PC, not that the current session is that kiosk.
+    /// </summary>
+    public bool HklmSignal { get; }
     public string Detail { get; }
 }
 
 /// <summary>
-/// Best-effort detection of a Windows Assigned Access / Shell Launcher kiosk session
-/// (CONTRACT §9.2 "aacEntitlementPresent" and §9.3 "assigned-access"). Signals, any of which
-/// counts as positive:
-///   1. HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\AssignedAccessConfiguration exists
-///      (written by Windows for the kiosk account).
-///   2. The Winlogon shell for this user/machine is not explorer.exe (Shell Launcher).
-///   3. No explorer.exe is running in this logon session (single-app kiosk shells never start it).
-///      (Only counted when every process' session id could be read — never on an enumeration error.)
+/// ADVISORY detection of a Windows Assigned Access / Shell Launcher kiosk configuration (W-01).
 ///
-/// Deliberately NOT used: machine-wide HKLM AssignedAccess keys, whose presence on ordinary desktops
-/// is not documented well enough; a false "assigned-access" would over-claim OS enforcement.
+/// Only HKLM keys are read — they are writable by administrators only, so a student running as
+/// a standard user cannot fake them:
+///   1. HKLM\SOFTWARE\Microsoft\Windows Embedded\Shell Launcher
+///        Present when Shell Launcher (Education/Enterprise) has been configured on this machine
+///        (the WMI/CSP provider stores its per-user/default shell mappings here).
+///   2. HKLM\SOFTWARE\Microsoft\Windows\AssignedAccessConfiguration
+///        Present when a multi-app / restricted-user-experience Assigned Access profile has been
+///        applied (provisioning package, Intune AssignedAccess CSP, PowerShell).
+///   3. HKLM\SOFTWARE\Microsoft\Windows\AssignedAccessCsp
+///        Present when the AssignedAccess CSP has ever written a configuration (Intune / MDM).
 ///
-/// TODO (documented): the authoritative source is the MDM bridge WMI class
-/// root\cimv2\mdm\dmmap MDM_AssignedAccess, which needs System.Management (an extra package)
-/// and usually administrator rights. It is intentionally not used in this build.
+/// Deliberately NOT used (removed by the 2026-09-14 review): every HKCU key (the student's own
+/// hive — trivially writable), the Winlogon "Shell" value (HKCU override is user-writable), and
+/// "no explorer.exe in this session" (the student can simply kill Explorer). None of those can
+/// prove OS enforcement. HKLM\...\Authentication\LogonUI\* is a logon-screen cache, not a kiosk
+/// marker, and is not consulted either.
+///
+/// The result is reported to the server as assignedAccessHint / aacEntitlementPresent and shown
+/// in the UI as "client-reported"; the server decides requireAAC from its device registry.
 /// </summary>
 public static class AssignedAccessDetector
 {
     private const string LogCat = "assigned-access";
 
+    private const string ShellLauncherKey = @"SOFTWARE\Microsoft\Windows Embedded\Shell Launcher";
+    private const string AssignedAccessConfigurationKey = @"SOFTWARE\Microsoft\Windows\AssignedAccessConfiguration";
+    private const string AssignedAccessCspKey = @"SOFTWARE\Microsoft\Windows\AssignedAccessCsp";
+
     public static AssignedAccessResult Detect()
     {
         try
         {
-            if (KeyExists(Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\AssignedAccessConfiguration"))
+            if (HklmKeyExists(ShellLauncherKey))
             {
-                return Positive("Assigned Access configuration present for this user");
+                return Positive("HKLM Shell Launcher configuration present (client-reported hint)");
             }
-            var shell = ReadShell();
-            if (shell != null && !shell.Contains("explorer.exe", StringComparison.OrdinalIgnoreCase))
+            if (HklmKeyExists(AssignedAccessConfigurationKey))
             {
-                return Positive("Custom Winlogon shell (" + shell + ") — Shell Launcher");
+                return Positive("HKLM AssignedAccessConfiguration present (client-reported hint)");
             }
-
-            if (!ExplorerRunningInThisSession())
+            if (HklmKeyExists(AssignedAccessCspKey))
             {
-                return Positive("No Explorer shell in this session — kiosk shell");
+                return Positive("HKLM AssignedAccessCsp configuration present (client-reported hint)");
             }
-
-            return new AssignedAccessResult(false, "Not running in an Assigned Access / Shell Launcher session");
+            return new AssignedAccessResult(false, "No machine-wide (HKLM) Shell Launcher / Assigned Access configuration found");
         }
         catch (Exception ex)
         {
@@ -72,75 +83,22 @@ public static class AssignedAccessDetector
         return new AssignedAccessResult(true, detail);
     }
 
-    private static bool KeyExists(RegistryKey root, string path)
+    /// <summary>Checks the 64-bit view first, then the 32-bit (WOW6432Node) view.</summary>
+    private static bool HklmKeyExists(string path)
     {
-        try
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
-            using var key = root.OpenSubKey(path, writable: false);
-            return key != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>Winlogon "Shell" value: HKCU overrides HKLM. Null when unset (=> explorer.exe).</summary>
-    private static string? ReadShell()
-    {
-        try
-        {
-            using (var user = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon", writable: false))
-            {
-                var s = user?.GetValue("Shell") as string;
-                if (!string.IsNullOrWhiteSpace(s)) return s;
-            }
-            using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-            using var machine = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon", writable: false);
-            var m = machine?.GetValue("Shell") as string;
-            return string.IsNullOrWhiteSpace(m) ? null : m;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static bool ExplorerRunningInThisSession()
-    {
-        try
-        {
-            int session;
-            using (var self = Process.GetCurrentProcess())
-            {
-                session = self.SessionId;
-            }
-            var explorers = Process.GetProcessesByName("explorer");
             try
             {
-                var unknown = false;
-                foreach (var p in explorers)
-                {
-                    try
-                    {
-                        if (p.SessionId == session) return true;
-                    }
-                    catch
-                    {
-                        unknown = true;
-                    }
-                }
-                // Fail safe: if any session id could not be read, assume a normal desktop.
-                return unknown;
+                using var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var key = hklm.OpenSubKey(path, writable: false);
+                if (key != null) return true;
             }
-            finally
+            catch
             {
-                foreach (var p in explorers) p.Dispose();
+                // no access: treat as absent
             }
         }
-        catch
-        {
-            return true; // unknown => assume a normal desktop
-        }
+        return false;
     }
 }

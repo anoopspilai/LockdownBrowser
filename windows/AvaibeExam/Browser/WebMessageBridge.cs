@@ -60,9 +60,10 @@ public sealed class WebMessageBridge
     /// Injected at document creation. Makes the unchanged exam page (which talks to
     /// window.webkit.messageHandlers.lockdown) work on WebView2 and publishes window.LockdownNative.
     /// </summary>
-    public static string ShimScript(LockdownMode mode)
+    public static string ShimScript(LockdownMode mode, bool allowPrinting)
     {
         var native = "{ platform: 'windows', clientVersion: '" + Constants.ClientVersion + "', lockdownMode: '" + mode.Wire() + "' }";
+        var printing = allowPrinting ? "true" : "false";
         return
             "(function () {\n" +
             "  try {\n" +
@@ -73,6 +74,23 @@ public sealed class WebMessageBridge
             "  try {\n" +
             "    Object.defineProperty(window, 'LockdownNative', { value: Object.freeze(" + native + "), writable: false, configurable: false, enumerable: true });\n" +
             "  } catch (e) { window.LockdownNative = " + native + "; }\n" +
+            // W-21: media capture is denied at the API level too (PermissionRequested denies as well).
+            "  try {\n" +
+            "    var deny = function (target, name) {\n" +
+            "      if (!target) return;\n" +
+            "      try { delete target[name]; } catch (e) {}\n" +
+            "      try { Object.defineProperty(target, name, { value: undefined, writable: false, configurable: false, enumerable: false }); } catch (e) {}\n" +
+            "    };\n" +
+            "    if (typeof MediaDevices !== 'undefined') { deny(MediaDevices.prototype, 'getDisplayMedia'); deny(MediaDevices.prototype, 'getUserMedia'); }\n" +
+            "    if (navigator.mediaDevices) { deny(navigator.mediaDevices, 'getDisplayMedia'); deny(navigator.mediaDevices, 'getUserMedia'); }\n" +
+            "    deny(navigator, 'getUserMedia'); deny(navigator, 'webkitGetUserMedia');\n" +
+            "  } catch (e) { console.error('[lockdown-shim] media deny failed', e); }\n" +
+            "  try {\n" +
+            "    if (!" + printing + ") {\n" +
+            "      var noPrint = function () {};\n" +
+            "      try { Object.defineProperty(window, 'print', { value: noPrint, writable: false, configurable: false }); } catch (e) { window.print = noPrint; }\n" +
+            "    }\n" +
+            "  } catch (e) { console.error('[lockdown-shim] print override failed', e); }\n" +
             "})();";
     }
 

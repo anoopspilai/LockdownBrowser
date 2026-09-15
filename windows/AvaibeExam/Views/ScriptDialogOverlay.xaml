@@ -1,0 +1,17 @@
+<UserControl x:Class="AvaibeExam.Views.ScriptDialogOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource OverlayBackdropBrush}">
+    <Border Style="{StaticResource Card}" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel>
+            <TextBlock x:Name="TitleText" Style="{StaticResource TitleText}" HorizontalAlignment="Center" Text="Message from the exam page"/>
+            <TextBlock x:Name="MessageText" Style="{StaticResource BodyText}" TextAlignment="Center" Margin="0,12,0,0"/>
+            <TextBox x:Name="InputBox" Style="{StaticResource Field}" Margin="0,12,0,0" Visibility="Collapsed"
+                     TextChanged="InputBox_TextChanged" KeyDown="InputBox_KeyDown"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
+                <Button x:Name="CancelButton" Style="{StaticResource SecondaryButton}" Content="Cancel" Margin="0,0,10,0" Click="CancelButton_Click"/>
+                <Button x:Name="OkButton" Style="{StaticResource PrimaryButton}" Content="OK" Click="OkButton_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

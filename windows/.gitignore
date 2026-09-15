@@ -1,6 +1,7 @@
 bin/
 obj/
 publish/
+publish-debug/
 publish-standalone/
 installer/output/
 installer/MicrosoftEdgeWebview2Setup.exe

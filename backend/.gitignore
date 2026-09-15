@@ -1,0 +1,5 @@
+data/
+certs/
+*.db
+*.db-*
+node_modules/

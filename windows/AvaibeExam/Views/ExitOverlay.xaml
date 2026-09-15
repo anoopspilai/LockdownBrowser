@@ -5,7 +5,7 @@
     <Border Style="{StaticResource Card}" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel>
             <TextBlock FontSize="40" HorizontalAlignment="Center" Foreground="{StaticResource AccentBrush}" Text="&#x1F512;"/>
-            <TextBlock Style="{StaticResource TitleText}" HorizontalAlignment="Center" Margin="0,8,0,0" Text="Exam locked"/>
+            <TextBlock x:Name="TitleText" Style="{StaticResource TitleText}" HorizontalAlignment="Center" Margin="0,8,0,0" Text="Exam locked"/>
             <TextBlock x:Name="MessageText" Style="{StaticResource BodyText}" TextAlignment="Center" Margin="0,12,0,0"/>
 
             <StackPanel x:Name="CodePanel" Margin="0,18,0,0">
@@ -20,6 +20,8 @@
             <TextBlock x:Name="ErrorText" Style="{StaticResource ErrorText}" TextAlignment="Center" Margin="0,12,0,0" Visibility="Collapsed"/>
             <TextBlock x:Name="StatusText" Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,12,0,0"/>
             <TextBlock x:Name="ModeText" Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,4,0,0"/>
+            <Button x:Name="BackButton" Style="{StaticResource SecondaryButton}" Content="Back to exam" HorizontalAlignment="Center"
+                    Margin="0,14,0,0" Visibility="Collapsed" Click="BackButton_Click"/>
         </StackPanel>
     </Border>
 </UserControl>

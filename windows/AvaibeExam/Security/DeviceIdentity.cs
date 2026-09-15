@@ -12,7 +12,9 @@ namespace AvaibeExam.Security;
 /// <summary>
 /// Hardware identity + persisted enrollment + settings (CONTRACT §9.1).
 ///   * hardwareId  = HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid (fallback: generated GUID in settings.json)
-///   * enrollment  = %LOCALAPPDATA%\AvaibeExam\enrollment.dat, DPAPI (CurrentUser scope)
+///   * enrollment  = %LOCALAPPDATA%\AvaibeExam\enrollment.dat, DPAPI (CurrentUser scope):
+///                   deviceId, deviceToken (secret), pinned server signing key + keyId (§10.1)
+///   * nonces      = %LOCALAPPDATA%\AvaibeExam\nonces.dat, DPAPI: used command nonces (§10.4)
 ///   * settings    = %LOCALAPPDATA%\AvaibeExam\settings.json (never contains secrets)
 /// </summary>
 public static class DeviceIdentity
@@ -73,24 +75,54 @@ public static class DeviceIdentity
         return $"{v.Major}.{v.Minor}.{v.Build}";
     }
 
+    // ---- DPAPI file helpers (enrollment.dat, nonces.dat) -------------------------------
+
+    /// <summary>Writes UTF-8 text DPAPI-protected (CurrentUser scope). Throws on failure.</summary>
+    public static void ProtectToFile(string path, string plainText)
+    {
+        Directory.CreateDirectory(Constants.AppDataDirectory);
+        var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(plainText), Entropy, DataProtectionScope.CurrentUser);
+        // Write-then-rename so a crash mid-write never leaves a truncated file.
+        var tmp = path + ".tmp";
+        File.WriteAllBytes(tmp, protectedBytes);
+        File.Copy(tmp, path, overwrite: true);
+        try { File.Delete(tmp); } catch { /* ignore */ }
+    }
+
+    /// <summary>Reads and unprotects a file written by <see cref="ProtectToFile"/>; null when missing. Throws on tamper/other-user.</summary>
+    public static string? UnprotectFromFile(string path)
+    {
+        if (!File.Exists(path)) return null;
+        var protectedBytes = File.ReadAllBytes(path);
+        var plain = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
+        return Encoding.UTF8.GetString(plain);
+    }
+
     // ---- Enrollment (DPAPI) ---------------------------------------------------------
 
+    /// <summary>
+    /// Returns null when not enrolled OR when the stored enrollment predates protocol v2 (no
+    /// pinned server key): without a pinned key no RELEASE could ever be verified, so the device
+    /// must re-enroll (the login screen asks for the token again).
+    /// </summary>
     public static Enrollment? LoadEnrollment()
     {
         try
         {
-            var path = Constants.EnrollmentFile;
-            if (!File.Exists(path)) return null;
-            var protectedBytes = File.ReadAllBytes(path);
-            var plain = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
-            var json = Encoding.UTF8.GetString(plain);
+            var json = UnprotectFromFile(Constants.EnrollmentFile);
+            if (json == null) return null;
             var e = Json.Deserialize<Enrollment>(json);
             if (e == null || string.IsNullOrWhiteSpace(e.DeviceId) || string.IsNullOrWhiteSpace(e.DeviceToken)) return null;
+            if (string.IsNullOrWhiteSpace(e.ServerPublicKey))
+            {
+                Log.Warn(LogCat, "Stored enrollment has no pinned server key (pre-v2); re-enrollment required");
+                return null;
+            }
             return e;
         }
         catch (Exception ex)
         {
-            Log.Warn(LogCat, "Could not load enrollment (treating as not enrolled): " + ex.Message);
+            Log.Warn(LogCat, "Could not load enrollment (treating as not enrolled): " + ex.GetType().Name);
             return null;
         }
     }
@@ -99,10 +131,7 @@ public static class DeviceIdentity
     {
         try
         {
-            Directory.CreateDirectory(Constants.AppDataDirectory);
-            var json = Json.Serialize(enrollment);
-            var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), Entropy, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(Constants.EnrollmentFile, protectedBytes);
+            ProtectToFile(Constants.EnrollmentFile, Json.Serialize(enrollment));
         }
         catch (Exception ex)
         {
@@ -115,6 +144,7 @@ public static class DeviceIdentity
         try
         {
             if (File.Exists(Constants.EnrollmentFile)) File.Delete(Constants.EnrollmentFile);
+            if (File.Exists(Constants.NonceFile)) File.Delete(Constants.NonceFile);
             Log.Info(LogCat, "Enrollment reset by user");
         }
         catch (Exception ex)

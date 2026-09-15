@@ -60,9 +60,10 @@ public sealed class KioskFallback
     private DateTime _lastDeactivatedReport = DateTime.MinValue;
     private DateTime _lastSessionEndReport = DateTime.MinValue;
     private DateTime _lastResizeReport = DateTime.MinValue;
-    private DateTime _lastHookRefresh = DateTime.MinValue;
+    private DateTime _lastAffinityCheck = DateTime.MinValue;
     private bool _shutdownBlockActive;
     private bool _reassertingState;
+    private uint _expectedAffinity = NativeMethods.WDA_NONE;
 
     public bool IsEngaged { get; private set; }
 
@@ -71,8 +72,12 @@ public sealed class KioskFallback
     /// <summary>"exclude-from-capture", "monitor", or "none".</summary>
     public string CaptureProtectionLevel { get; private set; } = "none";
 
-    /// <summary>(shortcut name) — throttled.</summary>
-    public Action<string>? OnBlockedShortcut { get; set; }
+    /// <summary>(shortcut name, injected) — throttled.</summary>
+    public Action<string, bool>? OnBlockedShortcut { get; set; }
+    /// <summary>The OS silently dropped the keyboard hook (reinstalled: bool). (W-19)</summary>
+    public Action<bool>? OnKeyboardHookLost { get; set; }
+    /// <summary>GetWindowDisplayAffinity no longer reports the level we set (re-applied: bool). (W-13a)</summary>
+    public Action<bool>? OnCaptureProtectionLost { get; set; }
     /// <summary>(foreground process name) — throttled to once per 2 s.</summary>
     public Action<string>? OnDeactivated { get; set; }
     /// <summary>(width, height) in physical pixels — throttled.</summary>
@@ -112,7 +117,6 @@ public sealed class KioskFallback
         PresentFullscreen(window);
         ApplyCaptureProtection();
         InstallKeyboardHook();
-        _lastHookRefresh = DateTime.UtcNow;
         InstallWndProcHook();
         BlockSessionEnd();
         UpdateCoverWindows();
@@ -153,6 +157,7 @@ public sealed class KioskFallback
         }
         CaptureProtectionActive = false;
         CaptureProtectionLevel = "none";
+        _expectedAffinity = NativeMethods.WDA_NONE;
 
         var window = _window;
         var saved = _saved;
@@ -263,6 +268,7 @@ public sealed class KioskFallback
             {
                 CaptureProtectionActive = true;
                 CaptureProtectionLevel = "exclude-from-capture";
+                _expectedAffinity = NativeMethods.WDA_EXCLUDEFROMCAPTURE;
                 Log.Info(LogCat, "Screen capture protection: WDA_EXCLUDEFROMCAPTURE");
                 return;
             }
@@ -271,12 +277,14 @@ public sealed class KioskFallback
             {
                 CaptureProtectionActive = true;
                 CaptureProtectionLevel = "monitor";
+                _expectedAffinity = NativeMethods.WDA_MONITOR;
                 Log.Warn(LogCat, $"WDA_EXCLUDEFROMCAPTURE failed ({err1}); using WDA_MONITOR");
                 return;
             }
             var err2 = Marshal.GetLastWin32Error();
             CaptureProtectionActive = false;
             CaptureProtectionLevel = "none";
+            _expectedAffinity = NativeMethods.WDA_NONE;
             var reason = $"SetWindowDisplayAffinity failed (exclude={err1}, monitor={err2})";
             Log.Warn(LogCat, "Screen capture protection unavailable: " + reason);
             OnCaptureProtectionUnavailable?.Invoke(reason);
@@ -285,8 +293,45 @@ public sealed class KioskFallback
         {
             CaptureProtectionActive = false;
             CaptureProtectionLevel = "none";
+            _expectedAffinity = NativeMethods.WDA_NONE;
             Log.Warn(LogCat, "SetWindowDisplayAffinity threw: " + ex.Message);
             OnCaptureProtectionUnavailable?.Invoke(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// W-13a: once per second the watchdog reads the affinity back. If it no longer matches what
+    /// we set (another component or a tool reset it), re-apply and report CAPTURE_PROTECTION_LOST.
+    /// </summary>
+    private void VerifyCaptureProtection()
+    {
+        if (_hwnd == IntPtr.Zero || _expectedAffinity == NativeMethods.WDA_NONE) return;
+        var now = DateTime.UtcNow;
+        if ((now - _lastAffinityCheck).TotalSeconds < 1) return;
+        _lastAffinityCheck = now;
+        uint current;
+        if (!NativeMethods.GetWindowDisplayAffinity(_hwnd, out current)) return; // cannot tell; do not alarm
+        if (current == _expectedAffinity) return;
+        Log.Error("security", $"Capture protection changed underneath us (expected 0x{_expectedAffinity:X}, found 0x{current:X}); re-applying");
+        var expected = _expectedAffinity;
+        ApplyCaptureProtection();
+        OnCaptureProtectionLost?.Invoke(_expectedAffinity == expected);
+    }
+
+    /// <summary>Applies the same capture affinity to a cover window (W-24).</summary>
+    private static void ApplyCaptureProtectionTo(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        try
+        {
+            if (!NativeMethods.SetWindowDisplayAffinity(hwnd, NativeMethods.WDA_EXCLUDEFROMCAPTURE))
+            {
+                NativeMethods.SetWindowDisplayAffinity(hwnd, NativeMethods.WDA_MONITOR);
+            }
+        }
+        catch
+        {
+            // best effort
         }
     }
 
@@ -298,7 +343,8 @@ public sealed class KioskFallback
         {
             AllowClipboard = _policy.AllowClipboard,
             AllowPrinting = _policy.AllowPrinting,
-            OnBlocked = name => OnBlockedShortcut?.Invoke(name),
+            OnBlocked = (name, injected) => OnBlockedShortcut?.Invoke(name, injected),
+            OnHookLost = reinstalled => OnKeyboardHookLost?.Invoke(reinstalled),
         };
         if (!_hook.Install())
         {
@@ -362,7 +408,7 @@ public sealed class KioskFallback
                         Log.Warn("security", "System command blocked: 0x" + command.ToString("X4"));
                         if (command == NativeMethods.SC_CLOSE || command == NativeMethods.SC_MINIMIZE)
                         {
-                            OnBlockedShortcut?.Invoke(command == NativeMethods.SC_CLOSE ? "SysMenu+Close" : "SysMenu+Minimize");
+                            OnBlockedShortcut?.Invoke(command == NativeMethods.SC_CLOSE ? "SysMenu+Close" : "SysMenu+Minimize", false);
                         }
                         handled = true;
                         return IntPtr.Zero;
@@ -453,6 +499,7 @@ public sealed class KioskFallback
                     var b = screen.Bounds;
                     NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST, b.X, b.Y, b.Width, b.Height,
                         NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+                    ApplyCaptureProtectionTo(hwnd);
                 }
                 _covers.Add(cover);
             }
@@ -578,14 +625,9 @@ public sealed class KioskFallback
                 }
             }
             ReassertWindow();
-
-            // Heal a silently-removed low-level hook (see KeyboardHook.Reinstall).
-            var nowUtc = DateTime.UtcNow;
-            if (_hook != null && (nowUtc - _lastHookRefresh).TotalSeconds >= 30)
-            {
-                _lastHookRefresh = nowUtc;
-                _hook.Reinstall();
-            }
+            VerifyCaptureProtection();
+            // W-19: liveness probe instead of a blind periodic reinstall.
+            _hook?.CheckLiveness();
         }
         catch (Exception ex)
         {

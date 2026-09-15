@@ -22,10 +22,12 @@
 ;
 ;  HOW TO BUILD IT
 ;  ---------------
-;    1. Build the app first:      windows\scripts\build.ps1
-;       (that fills windows\publish\ - this script copies from there)
-;    2. Then either run:          windows\scripts\make-installer.ps1
-;       or compile by hand:       ISCC.exe windows\installer\AvaibeExam.iss
+;    1. Build the app first:      windows\scripts\build.ps1        (Release)
+;       (that fills windows\publish\ - this script copies from there; Debug builds go to
+;        windows\publish-debug\ and are never packaged)
+;    2. Then run:                 windows\scripts\make-installer.ps1
+;       It checks windows\publish\build-info.json says "Release" before compiling this file.
+;       Compiling by hand (ISCC.exe windows\installer\AvaibeExam.iss) skips that check - don't.
 ;
 ;  The result is:  windows\installer\output\AvaibeExam-Setup-0.1.0.exe
 ;
@@ -118,7 +120,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Everything the build produced, including sub-folders (runtimes\win-x64\native\WebView2Loader.dll
 ; lives in a sub-folder, so "recursesubdirs createallsubdirs" is essential).
 ; The path is relative to THIS .iss file, so it points at windows\publish\.
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "build-info.json"
 
 ; The WebView2 bootstrapper, only if you dropped it next to this script.
 ; "dontcopy" means: pack it inside Setup.exe but do NOT install it to disk. The [Code]
@@ -139,7 +141,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; Offer to launch the app at the end of the wizard. "nowait postinstall skipifsilent"
 ; means: do not block the wizard, only offer it at the end, and never do it during a
 ; silent install (/VERYSILENT), which is how Intune and school IT deploy it.
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; "runasoriginaluser": Setup runs elevated (PrivilegesRequired=admin); without this flag the
+; exam client would be launched with the administrator token, which is exactly what the
+; client must never run as (asInvoker manifest, standard-user policy, DPAPI per-user files).
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 
 [UninstallDelete]

@@ -2,9 +2,17 @@
 .SYNOPSIS
     Restores, builds and publishes AvaibeExam.exe (win-x64, framework-dependent).
 
+.DESCRIPTION
+    Release output goes to windows\publish\ (what the installer packages).
+    Debug output goes to windows\publish-debug\ (what run.ps1 / smoke.ps1 use).
+    Keeping them apart guarantees an installer can never be built from a Debug build, which
+    still contains the developer switches (AVAIBE_AUTO_*, AVAIBE_SMOKE_TEST). Every publish
+    writes build-info.json {configuration, version, time, commit} next to the exe;
+    make-installer.ps1 refuses anything but configuration = "Release".
+
 .EXAMPLE
-    .\scripts\build.ps1                 # Release publish -> windows\publish\AvaibeExam.exe
-    .\scripts\build.ps1 -Configuration Debug
+    .\scripts\build.ps1                          # Release -> windows\publish\AvaibeExam.exe
+    .\scripts\build.ps1 -Configuration Debug     # Debug   -> windows\publish-debug\AvaibeExam.exe
     .\scripts\build.ps1 -Sign -CertThumbprint 0123ABCD... -TimestampUrl http://timestamp.digicert.com
 #>
 [CmdletBinding()]
@@ -19,7 +27,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $root "AvaibeExam\AvaibeExam.csproj"
-$publishDir = Join-Path $root "publish"
+$publishDir = if ($Configuration -eq "Release") { Join-Path $root "publish" } else { Join-Path $root "publish-debug" }
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     Write-Error "dotnet SDK not found. Install .NET 8 SDK: https://dotnet.microsoft.com/download/dotnet/8.0"
@@ -38,14 +46,33 @@ Write-Host "==> dotnet build ($Configuration)"
 dotnet build $project -c $Configuration --no-restore
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
-Write-Host "==> dotnet publish (win-x64, framework-dependent, not single-file)"
+Write-Host "==> dotnet publish ($Configuration, win-x64, framework-dependent, not single-file) -> $publishDir"
+if (Test-Path $publishDir) { Remove-Item -Recurse -Force $publishDir }
 dotnet publish $project -c $Configuration -r win-x64 --self-contained false -p:PublishSingleFile=false -o $publishDir --no-restore
 if ($LASTEXITCODE -ne 0) { throw "publish failed" }
 
 $exe = Join-Path $publishDir "AvaibeExam.exe"
 if (-not (Test-Path $exe)) { throw "publish did not produce $exe" }
 
+# build-info.json: read by make-installer.ps1 to refuse non-Release payloads.
+$version = "unknown"
+try {
+    $csproj = [xml](Get-Content $project)
+    $v = $csproj.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1
+    if ($v) { $version = "$v" }
+} catch { }
+$commit = ""
+try { $commit = (git -C $root rev-parse --short HEAD 2>$null); if (-not $commit) { $commit = "" } } catch { $commit = "" }
+$buildInfo = [ordered]@{
+    configuration = $Configuration
+    version       = $version
+    time          = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    commit        = "$commit"
+}
+$buildInfo | ConvertTo-Json | Set-Content -Path (Join-Path $publishDir "build-info.json") -Encoding UTF8
+
 if ($Sign) {
+    if ($Configuration -ne "Release") { throw "Only Release builds may be signed" }
     if (-not $CertThumbprint) { throw "-Sign requires -CertThumbprint" }
     $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
     if (-not $signtool) {
@@ -66,5 +93,5 @@ if ($Sign) {
 }
 
 Write-Host ""
-Write-Host "Published: $exe"
+Write-Host "Published ($Configuration): $exe"
 Write-Output $exe

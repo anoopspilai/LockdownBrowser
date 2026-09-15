@@ -180,7 +180,7 @@ The most likely first-build errors:
 | Field | Value |
 |---|---|
 | Backend URL | `http://localhost:4000` (already filled in) |
-| Enrollment token | `SCHOOL-DEMO`. Only asked the first time on each PC. Use `BYOD-DEMO` to test student-laptop mode. |
+| Enrollment token | A single-use token issued by the admin console of the v2 backend (`backend/`). Only asked the first time on each PC. **The old `mock-backend/` (v1) cannot enroll this client**: it does not send the server signing key, so enrollment fails with `ENROLL_NO_KEY`. Use the real backend in `backend/` for development. |
 | Student code | Any value, for example `1025` |
 | Exam code | `DEMO` (5 minutes), `MATH101` (60 minutes) or `SCI202` (45 minutes) |
 
@@ -224,11 +224,26 @@ The app is built to be hard to leave. These always work:
 For unattended testing, this signs in automatically and force-closes the app after 120 seconds:
 
 ```powershell
-.\scripts\run.ps1 -AutoRun -ExitAfter 120
+.\scripts\run.ps1 -AutoRun -Token <enrollment-token> -ExitAfter 120
 ```
 
-This switch is for development only. Section 10 explains why it must be removed from production
-builds.
+**These switches only exist in Debug builds.** `run.ps1` and `smoke.ps1` build a Debug app into
+`windows\publish-debug\`. A Release build (`windows\publish\`, which the installer packages)
+ignores every `AVAIBE_*` environment variable, so there is no hidden way out of a real exam.
+
+Other things to know about a locked exam:
+
+- **Terminate does not unlock.** When a teacher presses Terminate (or an extra monitor triggers
+  the `TERMINATE` policy), the app submits the exam and shows "Session terminated. Wait for your
+  teacher." The screen stays locked until the teacher releases the student or types a release
+  code. This is deliberate.
+- **Only a signed release unlocks.** Every release and terminate command carries a signature from
+  the server. The app checks it against the key it pinned at enrollment. A command with a bad or
+  missing signature is ignored and reported to the console as `COMMAND_REJECTED`.
+- **Offline failsafe.** If the app cannot reach the server for the policy's `offlineGraceSeconds`
+  (default 10 minutes), it releases the student by itself, shows why, and keeps trying to send the
+  submission and events once the connection comes back. The status strip counts the offline time
+  down so the student can see it.
 
 ## 7. Use a server on another computer
 
@@ -312,13 +327,23 @@ Do all of these before any real exam.
 | # | Item | Why it matters | What to do |
 |---|---|---|---|
 | 1 | **Compile and fully test on Windows** | The code has never run on Windows. | Build it, fix errors, and pass every test in section 19. |
-| 2 | **Remove developer switches from release builds** | Today the switches `AVAIBE_AUTO_RUN`, `AVAIBE_AUTO_EXIT_AFTER` and `AVAIBE_SMOKE_TEST` work in every build. Starting the app with `AVAIBE_AUTO_RUN=1` and `AVAIBE_AUTO_EXIT_AFTER` set force-closes it after that many seconds, **even during a locked exam**. That is a free way out of lockdown. | Wrap that code in `#if DEBUG` ... `#endif`, so release builds ignore these variables. The code is in `AvaibeExam/App/AppState.cs` (auto-run) and `AvaibeExam/App.xaml.cs` (smoke test). |
+| 2 | ~~Remove developer switches from release builds~~ **Done (v2 pass).** | The switches `AVAIBE_AUTO_RUN`, `AVAIBE_AUTO_EXIT_AFTER`, `AVAIBE_SMOKE_TEST` and `AVAIBE_BASE_URL` now exist only in Debug builds (`#if DEBUG` in `AppState.cs`, `App.xaml.cs`, `Constants.cs`). `build.ps1` writes Debug output to `publish-debug\` and Release to `publish\`; `make-installer.ps1` refuses anything that is not a Release build. | Nothing to do. Keep it that way: never hand a `publish-debug\` folder to a school. |
 | 3 | **Move from .NET 8 to .NET 10** | Microsoft stops security updates for .NET 8 on **10 November 2026**. .NET 10 is the current long-term release, supported until 14 November 2028. See https://dotnet.microsoft.com/platform/support/policy/dotnet-core | Install the .NET 10 SDK. In `AvaibeExam/AvaibeExam.csproj`, change `net8.0-windows10.0.19041.0` to `net10.0-windows10.0.19041.0`, update the NuGet packages, rebuild and retest. |
-| 4 | **Require HTTPS** | The app accepts `http://` addresses today. Session tokens and answers would travel unencrypted. | In release builds, reject any backend URL that is not `https://`, except `localhost` for testing. |
-| 5 | **Let IT preset the server address** | Today the address is typed on the login screen or passed as a switch. A student could point the app at a fake server. | Read a machine-wide setting that IT deploys, for example a registry value under `HKEY_LOCAL_MACHINE` set by Intune, and lock the field when it is present. |
-| 6 | **Update the WebView2 package** | The project pins `Microsoft.Web.WebView2` version `1.0.2592.51`, from 2024. | Update to the current stable version and retest. |
+| 4 | ~~Require HTTPS~~ **Done (v2 pass).** | The app now refuses any backend URL that is not `https://`, except `localhost` / `127.0.0.1` for development. The exam page URL must be https too. | Nothing to do. Give schools an https address. |
+| 5 | ~~Let IT preset the server address~~ **Done (v2 pass).** | The app reads `HKEY_LOCAL_MACHINE\SOFTWARE\Avaibe\Exam`, string value `BaseUrl`. When it is present and valid, the login field is read-only. Only administrators (Intune, Group Policy) can write that key. | Deploy the registry value with Intune or GPO on school PCs. |
+| 6 | **Update the WebView2 package** | The project pins `Microsoft.Web.WebView2` version `1.0.2592.51`, from 2024. | Update to the current stable version and retest. Newer SDKs (1.0.2903.40+) also expose `ScreenCaptureStarting`, which the app should then subscribe to. |
 | 7 | **Decide how .NET reaches each PC** | A normal build needs the .NET Desktop Runtime installed on every PC. | Either publish self-contained with `.\scripts\publish-standalone.ps1`, which bundles .NET, or push the runtime to PCs with Intune. |
 | 8 | **Add crash recovery** | If the PC loses power mid-exam, the student must be able to rejoin with answers kept. | Test this carefully. The resume flow probably needs work on both the app and the server. |
+| 9 | **Set the production signing key pin (optional but recommended)** | The app pins the server's signing key the first time a PC enrolls ("trust on first use"). A hard-coded pin removes even that first-use gap. | Put the production server's public key (base64 SPKI) into `Constants.PinnedServerPublicKey` before building the release. Enrollment against any other server then fails. |
+| 10 | **Re-enroll every PC once** | Enrollments made by the old (v1) app have no pinned key and are ignored; the login screen asks for a new enrollment token. | Issue new single-use enrollment tokens from the admin console before the first v2 exam. |
+
+What the v2 pass changed in how the app behaves, in plain words:
+
+- **Signed release.** Release and terminate commands are signed by the server (ECDSA P-256). The app verifies the signature, the session and device ids, the time window and a one-time nonce. Anything else is ignored and reported.
+- **Terminate holds.** Terminate submits the exam and keeps the screen locked ("Session terminated. Wait for your teacher.") until a signed release arrives.
+- **Offline grace.** After `offlineGraceSeconds` without server contact the app releases itself, records why, and delivers the submission and events when the server is back.
+- **Resources menu.** The policy's `allowedLinks` show up in a "Resources" dropdown in the status strip. Everything else outside the exam page's origin is blocked, including frames and background requests.
+- **Client-reported checks.** Every readiness item, including the Assigned Access hint, is labelled "client-reported". The server decides what counts.
 
 When you release a new version, change the version number in **three places** so they match:
 
@@ -664,12 +689,14 @@ Be honest with schools about these limits.
 
 **Windows app**
 - [ ] Compiles and passes every test in section 19
-- [ ] Developer switches removed from release builds
+- [x] Developer switches removed from release builds (Debug-only since the v2 pass)
 - [ ] Moved to .NET 10
-- [ ] HTTPS required
-- [ ] Server address preset by IT
+- [x] HTTPS required (v2 pass)
+- [x] Server address preset by IT (`HKLM\SOFTWARE\Avaibe\Exam\BaseUrl`, v2 pass)
 - [ ] WebView2 package updated
+- [ ] `Constants.PinnedServerPublicKey` set to the production key
 - [ ] Version number updated in all three places
+- [ ] Installer built with `make-installer.ps1` (it refuses Debug builds)
 
 **Server**
 - [ ] Real platform replaces the mock server

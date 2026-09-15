@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avaibe Exam</title>
+<link rel="stylesheet" href="/exam.css">
+</head>
+<body>
+  <div id="browserModeBanner" hidden>Not running inside Avaibe Exam — bridge unavailable (browser test mode)</div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <header>
+    <span class="brand">Avaibe Exam</span>
+    <span class="title" id="examTitle">Loading exam…</span>
+    <span class="student" id="studentName"></span>
+    <span class="spacer"></span>
+    <span class="dot" id="onlineDot" title="Connection"></span>
+    <span class="badge unknown" id="lockBadge">Checking</span>
+    <span class="countdown" id="countdown">--:--</span>
+  </header>
+
+  <main>
+    <div id="loading" class="card state">
+      <h2>Preparing your exam</h2>
+      <p id="loadingText">Connecting to the exam service…</p>
+    </div>
+
+    <div id="examView" hidden>
+      <div class="progress">
+        <span id="progressText">Question 1 of 5</span>
+        <div class="palette" id="palette"></div>
+      </div>
+      <div class="card">
+        <div class="question">
+          <h2 id="questionText"></h2>
+          <div id="options"></div>
+        </div>
+        <div class="nav">
+          <button class="btn" id="prevBtn">Previous</button>
+          <span class="save-state" id="saveState">Answers are saved automatically</span>
+          <button class="btn" id="nextBtn">Next</button>
+        </div>
+      </div>
+      <div class="card resources" id="resources" hidden>
+        <span class="label">Resources</span>
+        <span id="resourceLinks"></span>
+      </div>
+      <div class="footer">
+        <span class="summary" id="summary"></span>
+        <div class="actions">
+          <a class="link" id="requestExit">Request exit</a>
+          <button class="btn primary" id="submitBtn">Submit exam</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="doneView" class="card state" hidden>
+      <h2 id="doneTitle">Exam submitted</h2>
+      <p id="doneText">Your answers have been recorded.</p>
+      <p id="doneRelease">Please wait for the exit screen.</p>
+    </div>
+  </main>
+
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">Submit your exam?</h3>
+      <p id="confirmText">You will not be able to change your answers after submitting.</p>
+      <div class="actions">
+        <button class="btn" id="cancelSubmit">Go back</button>
+        <button class="btn primary" id="confirmSubmit">Submit</button>
+      </div>
+    </div>
+  </div>
+
+<script src="/exam.js"></script>
+</body>
+</html>

@@ -41,7 +41,7 @@ public static class LockdownModeExtensions
     {
         switch (mode)
         {
-            case LockdownMode.AssignedAccess: return "Assigned Access";
+            case LockdownMode.AssignedAccess: return "Assigned Access (client-reported)";
             case LockdownMode.KioskFallback: return "Kiosk fallback";
             default: return "Not locked";
         }
@@ -49,7 +49,7 @@ public static class LockdownModeExtensions
 }
 
 // ======================================================================================
-// Enrollment (POST /api/v1/devices/enroll)
+// Enrollment (POST /api/v1/devices/enroll) — CONTRACT §10.1
 // ======================================================================================
 
 public sealed class EnrollRequest
@@ -68,18 +68,26 @@ public sealed class EnrollResponse
     [JsonPropertyName("deviceToken")] public string DeviceToken { get; set; } = string.Empty;
     [JsonPropertyName("mode")] public string Mode { get; set; } = "byod";
     [JsonPropertyName("minClientVersion")] public string? MinClientVersion { get; set; }
+    /// <summary>base64 SPKI DER of the server's ECDSA P-256 signing key (§10.1). Pinned at enrollment.</summary>
+    [JsonPropertyName("serverPublicKey")] public string? ServerPublicKey { get; set; }
+    [JsonPropertyName("keyId")] public string? KeyId { get; set; }
+    [JsonPropertyName("serverTime")] public string? ServerTime { get; set; }
 }
 
-/// <summary>Persisted enrollment (DPAPI-protected file, CONTRACT §9.1).</summary>
+/// <summary>Persisted enrollment (DPAPI-protected file, CONTRACT §9.1 / §10.1). Contains the pinned server key.</summary>
 public sealed class Enrollment
 {
     [JsonPropertyName("deviceId")] public string DeviceId { get; set; } = string.Empty;
     [JsonPropertyName("deviceToken")] public string DeviceToken { get; set; } = string.Empty;
     [JsonPropertyName("mode")] public string Mode { get; set; } = "byod";
+    /// <summary>Trust-on-first-use pinned signing key (base64 SPKI). Blank => pre-v2 enrollment, must re-enroll.</summary>
+    [JsonPropertyName("serverPublicKey")] public string ServerPublicKey { get; set; } = string.Empty;
+    [JsonPropertyName("keyId")] public string KeyId { get; set; } = string.Empty;
+    [JsonPropertyName("enrolledAt")] public string EnrolledAt { get; set; } = string.Empty;
 }
 
 // ======================================================================================
-// Preflight (CONTRACT §3 + §9.2)
+// Preflight (CONTRACT §3 + §9.2 + §10.4)
 // ======================================================================================
 
 [JsonConverter(typeof(AuthorizationStateConverter))]
@@ -107,7 +115,7 @@ public sealed class AuthorizationStateConverter : MappedEnumConverter<Authorizat
     protected override AuthorizationState Fallback => AuthorizationState.NotDetermined;
 }
 
-/// <summary>Wire format sent in POST /api/v1/sessions.</summary>
+/// <summary>Wire format sent in POST /api/v1/sessions. Everything here is CLIENT-REPORTED (§10.2).</summary>
 public sealed class PreflightReport
 {
     [JsonPropertyName("osVersion")] public string OsVersion { get; set; } = string.Empty;
@@ -118,8 +126,13 @@ public sealed class PreflightReport
     [JsonPropertyName("accountType")] public string AccountType { get; set; } = "admin";
     [JsonPropertyName("displayCount")] public int DisplayCount { get; set; } = 1;
     [JsonPropertyName("screenSharingActive")] public bool ScreenSharingActive { get; set; }
-    /// <summary>Windows: Assigned Access / kiosk session detected (CONTRACT §9.2).</summary>
+    /// <summary>
+    /// Windows: true ONLY when a machine-wide (HKLM) Shell Launcher / Assigned Access configuration is
+    /// present (§10.4). Advisory: the server decides requireAAC from its device registry.
+    /// </summary>
     [JsonPropertyName("aacEntitlementPresent")] public bool AacEntitlementPresent { get; set; }
+    /// <summary>Same HKLM signal under its honest name (§10.4). Advisory only.</summary>
+    [JsonPropertyName("assignedAccessHint")] public bool AssignedAccessHint { get; set; }
     [JsonPropertyName("cameraAuthorized")] public AuthorizationState CameraAuthorized { get; set; } = AuthorizationState.NotDetermined;
     [JsonPropertyName("microphoneAuthorized")] public AuthorizationState MicrophoneAuthorized { get; set; } = AuthorizationState.NotDetermined;
     [JsonPropertyName("internetReachable")] public bool InternetReachable { get; set; }
@@ -133,9 +146,13 @@ public sealed class PreflightExtras
     [JsonPropertyName("secureBoot")] public bool SecureBoot { get; set; }
     [JsonPropertyName("tpmPresent")] public bool TpmPresent { get; set; }
     [JsonPropertyName("virtualMachine")] public bool VirtualMachine { get; set; }
-    [JsonPropertyName("assignedAccess")] public bool AssignedAccess { get; set; }
+    /// <summary>HKLM kiosk configuration present (advisory, see PreflightReport.AssignedAccessHint).</summary>
+    [JsonPropertyName("assignedAccessHint")] public bool AssignedAccessHint { get; set; }
     [JsonPropertyName("rdpSession")] public bool RdpSession { get; set; }
     [JsonPropertyName("screenCaptureProtection")] public bool ScreenCaptureProtection { get; set; }
+    /// <summary>HKCU LowLevelHooksTimeout in ms (0 = not set, Windows default applies).</summary>
+    [JsonPropertyName("lowLevelHooksTimeoutMs")] public int LowLevelHooksTimeoutMs { get; set; }
+    [JsonPropertyName("debuggerAttached")] public bool DebuggerAttached { get; set; }
 }
 
 public enum PreflightStatus
@@ -162,6 +179,8 @@ public enum PreflightKind
     WebView2,
     VirtualMachine,
     RdpSession,
+    HookTimeout,
+    Debugger,
 }
 
 /// <summary>UI row on the Preflight screen.</summary>
@@ -202,7 +221,7 @@ public sealed class PreflightItem
 }
 
 // ======================================================================================
-// Session (POST /api/v1/sessions)
+// Session (POST /api/v1/sessions) — §10.2
 // ======================================================================================
 
 public sealed class SessionStartRequest
@@ -232,16 +251,51 @@ public sealed class SessionStartResponse
     [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
     [JsonPropertyName("sessionToken")] public string SessionToken { get; set; } = string.Empty;
     [JsonPropertyName("expiresAt")] public string ExpiresAt { get; set; } = string.Empty;
-    [JsonPropertyName("student")] public SessionStudent Student { get; set; } = new SessionStudent();
-    [JsonPropertyName("exam")] public SessionExam Exam { get; set; } = new SessionExam();
+    // Nullable on purpose: the server may omit them; Normalize() replaces null with empty objects.
+    [JsonPropertyName("student")] public SessionStudent? Student { get; set; }
+    [JsonPropertyName("exam")] public SessionExam? Exam { get; set; }
     [JsonPropertyName("examUrl")] public string ExamUrl { get; set; } = string.Empty;
-    [JsonPropertyName("policy")] public Policy Policy { get; set; } = new Policy();
+    [JsonPropertyName("policy")] public Policy? Policy { get; set; }
+    [JsonPropertyName("serverTime")] public string? ServerTime { get; set; }
+    [JsonPropertyName("nextBeatInSeconds")] public int? NextBeatInSeconds { get; set; }
 
     [JsonIgnore] public DateTimeOffset? ExpiresAtDate => Iso8601.Parse(ExpiresAt);
+
+    /// <summary>Non-null student/exam/policy after this call.</summary>
+    [JsonIgnore] public SessionStudent StudentOrEmpty => Student ??= new SessionStudent();
+    [JsonIgnore] public SessionExam ExamOrEmpty => Exam ??= new SessionExam();
+    [JsonIgnore] public Policy PolicyOrDefault => Policy ??= new Policy();
+
+    /// <summary>
+    /// Null-guards nested objects and rejects unusable responses (blank sessionId / examUrl,
+    /// blank token). Returns an error text, or null when the response is usable. (W-15)
+    /// </summary>
+    public string? Normalize()
+    {
+        Student ??= new SessionStudent();
+        Exam ??= new SessionExam();
+        Policy = (Policy ?? new Policy()).Normalized();
+        Student.Id ??= string.Empty;
+        Student.Name ??= string.Empty;
+        Exam.Code ??= string.Empty;
+        Exam.Title ??= string.Empty;
+        SessionId = (SessionId ?? string.Empty).Trim();
+        SessionToken = (SessionToken ?? string.Empty).Trim();
+        ExamUrl = (ExamUrl ?? string.Empty).Trim();
+        ExpiresAt ??= string.Empty;
+        if (SessionId.Length == 0 || SessionId.Length > 128) return "The server returned no session id.";
+        if (SessionToken.Length == 0 || SessionToken.Length > 512) return "The server returned no session token.";
+        if (ExamUrl.Length == 0 || ExamUrl.Length > 4096) return "The server returned no exam URL.";
+        if (!Uri.TryCreate(ExamUrl, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps))
+        {
+            return "The server returned an invalid exam URL.";
+        }
+        return null;
+    }
 }
 
 // ======================================================================================
-// Policy (CONTRACT §4)
+// Policy (CONTRACT §4 + §10.3)
 // ======================================================================================
 
 [JsonConverter(typeof(ExternalDisplayActionConverter))]
@@ -282,14 +336,45 @@ public sealed class AllowedApp
     [JsonPropertyName("teamId")] public string? TeamId { get; set; }
 }
 
+/// <summary>§10.3 allowedLinks entry: a resource the student may open from the "Resources" menu.</summary>
+public sealed class AllowedLink
+{
+    [JsonPropertyName("label")] public string Label { get; set; } = string.Empty;
+    [JsonPropertyName("url")] public string Url { get; set; } = string.Empty;
+
+    /// <summary>Absolute http(s) URL, no userinfo, no "..", label non-empty (falls back to the host).</summary>
+    public bool TryNormalize()
+    {
+        Url = (Url ?? string.Empty).Trim();
+        Label = (Label ?? string.Empty).Trim();
+        if (Url.Length == 0 || Url.Length > 2048) return false;
+        if (Url.Contains("..", StringComparison.Ordinal)) return false;
+        if (!Uri.TryCreate(Url, UriKind.Absolute, out var u)) return false;
+        if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return false;
+        if (!string.IsNullOrEmpty(u.UserInfo)) return false;
+        if (string.IsNullOrEmpty(u.Host)) return false;
+        if (Label.Length == 0) Label = u.Host;
+        if (Label.Length > 60) Label = Label.Substring(0, 60);
+        return true;
+    }
+}
+
 /// <summary>
 /// Every field has a conservative default so a partial policy from the server never makes
 /// the client less strict than intended. Call <see cref="Normalized"/> after deserializing.
 /// </summary>
 public sealed class Policy
 {
+    public const int MinHeartbeatSeconds = 2;
+    public const int MaxHeartbeatSeconds = 120;
+    public const int MinFlushSeconds = 1;
+    public const int MaxFlushSeconds = 300;
+    public const int MinOfflineGraceSeconds = 60;
+    public const int MaxOfflineGraceSeconds = 3600;
+
     [JsonPropertyName("mode")] public string Mode { get; set; } = "school";
     [JsonPropertyName("allowedDomains")] public List<string> AllowedDomains { get; set; } = new List<string> { "localhost", "127.0.0.1" };
+    [JsonPropertyName("allowedLinks")] public List<AllowedLink> AllowedLinks { get; set; } = new List<AllowedLink>();
     [JsonPropertyName("allowedApps")] public List<AllowedApp> AllowedApps { get; set; } = new List<AllowedApp>();
     [JsonPropertyName("blockExternalDisplay")] public bool BlockExternalDisplay { get; set; } = true;
     [JsonPropertyName("externalDisplayAction")] public ExternalDisplayAction ExternalDisplayAction { get; set; } = AvaibeExam.Models.ExternalDisplayAction.Warn;
@@ -303,27 +388,65 @@ public sealed class Policy
     [JsonPropertyName("allowDevTools")] public bool AllowDevTools { get; set; }
     [JsonPropertyName("heartbeatIntervalSeconds")] public int HeartbeatIntervalSeconds { get; set; } = 10;
     [JsonPropertyName("eventFlushIntervalSeconds")] public int EventFlushIntervalSeconds { get; set; } = 5;
+    /// <summary>§10.6 failsafe: release after this many seconds without any successful heartbeat.</summary>
+    [JsonPropertyName("offlineGraceSeconds")] public int OfflineGraceSeconds { get; set; } = 600;
+    /// <summary>"teacher" (default) | "auto" (§10.3 / §10.5).</summary>
+    [JsonPropertyName("releaseOnSubmit")] public string ReleaseOnSubmit { get; set; } = "teacher";
     [JsonPropertyName("minClientVersion")] public string MinClientVersion { get; set; } = "0.1.0";
     [JsonPropertyName("allowStudentReleaseCode")] public bool AllowStudentReleaseCode { get; set; } = true;
 
     /// <summary>Conservative defaults used before the server has sent a policy.</summary>
     public static Policy ConservativeDefault => new Policy();
 
-    /// <summary>Clamps intervals and null-guards lists (server data is untrusted).</summary>
+    public bool ReleaseOnSubmitIsAuto => string.Equals(ReleaseOnSubmit, "auto", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Clamps every number, null-guards lists and drops malformed entries (server data is untrusted). (W-07)</summary>
     public Policy Normalized()
     {
         AllowedDomains ??= new List<string>();
         AllowedApps ??= new List<AllowedApp>();
+        AllowedLinks ??= new List<AllowedLink>();
         Mode ??= "school";
         MinClientVersion = string.IsNullOrWhiteSpace(MinClientVersion) ? "0.1.0" : MinClientVersion;
-        HeartbeatIntervalSeconds = Math.Max(2, HeartbeatIntervalSeconds);
-        EventFlushIntervalSeconds = Math.Max(1, EventFlushIntervalSeconds);
+        ReleaseOnSubmit = string.Equals(ReleaseOnSubmit, "auto", StringComparison.OrdinalIgnoreCase) ? "auto" : "teacher";
+        HeartbeatIntervalSeconds = Math.Clamp(HeartbeatIntervalSeconds, MinHeartbeatSeconds, MaxHeartbeatSeconds);
+        EventFlushIntervalSeconds = Math.Clamp(EventFlushIntervalSeconds, MinFlushSeconds, MaxFlushSeconds);
+        OfflineGraceSeconds = Math.Clamp(OfflineGraceSeconds, MinOfflineGraceSeconds, MaxOfflineGraceSeconds);
+
+        var domains = new List<string>();
+        foreach (var d in AllowedDomains)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            var t = d.Trim().ToLowerInvariant();
+            if (t.Length > 253) continue;
+            if (!domains.Contains(t)) domains.Add(t);
+            if (domains.Count >= 200) break;
+        }
+        AllowedDomains = domains;
+
+        var links = new List<AllowedLink>();
+        foreach (var l in AllowedLinks)
+        {
+            if (l == null) continue;
+            if (l.TryNormalize()) links.Add(l);
+            if (links.Count >= 20) break;
+        }
+        AllowedLinks = links;
+
+        var apps = new List<AllowedApp>();
+        foreach (var a in AllowedApps)
+        {
+            if (a == null) continue;
+            a.BundleId ??= string.Empty;
+            apps.Add(a);
+        }
+        AllowedApps = apps;
         return this;
     }
 }
 
 // ======================================================================================
-// Heartbeat (POST /api/v1/sessions/:id/heartbeat)
+// Heartbeat (POST /api/v1/sessions/:id/heartbeat) — §10.4 signed commands
 // ======================================================================================
 
 [JsonConverter(typeof(HeartbeatStatusConverter))]
@@ -366,6 +489,8 @@ public enum HeartbeatCommandType
 
 public sealed class HeartbeatCommandTypeConverter : MappedEnumConverter<HeartbeatCommandType>
 {
+    public static readonly HeartbeatCommandTypeConverter Instance = new HeartbeatCommandTypeConverter();
+
     private static readonly Dictionary<HeartbeatCommandType, string> Wire = new Dictionary<HeartbeatCommandType, string>
     {
         [HeartbeatCommandType.Unknown] = "UNKNOWN",
@@ -378,13 +503,30 @@ public sealed class HeartbeatCommandTypeConverter : MappedEnumConverter<Heartbea
     protected override HeartbeatCommandType Fallback => HeartbeatCommandType.Unknown;
 }
 
+/// <summary>
+/// §10.4 signed authorization. The signature (ECDSA P-256 / SHA-256, IEEE P1363 r‖s) covers
+/// "avaibe-cmd-v1\n{type}\n{sessionId}\n{deviceId}\n{nonce}\n{issuedAt}\n{expiresAt}" using the
+/// exact strings received. Verified by Security/CommandVerifier; never logged in full.
+/// </summary>
+public sealed class CommandAuthorization
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = string.Empty;
+    [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
+    [JsonPropertyName("deviceId")] public string DeviceId { get; set; } = string.Empty;
+    [JsonPropertyName("nonce")] public string Nonce { get; set; } = string.Empty;
+    [JsonPropertyName("issuedAt")] public string IssuedAt { get; set; } = string.Empty;
+    [JsonPropertyName("expiresAt")] public string ExpiresAt { get; set; } = string.Empty;
+    [JsonPropertyName("keyId")] public string KeyId { get; set; } = string.Empty;
+    [JsonPropertyName("signature")] public string Signature { get; set; } = string.Empty;
+}
+
 public sealed class HeartbeatCommand
 {
     [JsonPropertyName("type")] public HeartbeatCommandType Type { get; set; } = HeartbeatCommandType.Unknown;
-    [JsonPropertyName("authorizationId")] public string? AuthorizationId { get; set; }
-    [JsonPropertyName("expiresAt")] public string? ExpiresAt { get; set; }
     [JsonPropertyName("reason")] public string? Reason { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
+    /// <summary>Required for RELEASE / TERMINATE (§10.4); WARN is unsigned.</summary>
+    [JsonPropertyName("authorization")] public CommandAuthorization? Authorization { get; set; }
 }
 
 public sealed class HeartbeatResponse
@@ -392,12 +534,13 @@ public sealed class HeartbeatResponse
     [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
     [JsonPropertyName("serverTime")] public string? ServerTime { get; set; }
     [JsonPropertyName("remainingSeconds")] public int? RemainingSeconds { get; set; }
+    [JsonPropertyName("nextBeatInSeconds")] public int? NextBeatInSeconds { get; set; }
     /// <summary>null, absent, or a command; unknown command types deserialize as Unknown and are ignored.</summary>
     [JsonPropertyName("command")] public HeartbeatCommand? Command { get; set; }
 }
 
 // ======================================================================================
-// Telemetry (POST /api/v1/sessions/:id/events)
+// Telemetry (POST /api/v1/sessions/:id/events) — §10.7
 // ======================================================================================
 
 [JsonConverter(typeof(EventSeverityConverter))]
@@ -435,7 +578,7 @@ public sealed class EventSeverityConverter : MappedEnumConverter<EventSeverity>
     }
 }
 
-/// <summary>Event type string constants from CONTRACT §3 and §9.5.</summary>
+/// <summary>Event type string constants from CONTRACT §3, §9.5 and §10.7.</summary>
 public static class EventType
 {
     public const string SessionStart = "SESSION_START";
@@ -465,6 +608,14 @@ public static class EventType
     public const string ScreenCaptureProtectionUnavailable = "SCREEN_CAPTURE_PROTECTION_UNAVAILABLE";
     public const string SessionEndBlocked = "SESSION_END_BLOCKED";
     public const string VirtualMachineDetected = "VIRTUAL_MACHINE_DETECTED";
+
+    // Protocol v2 (§10.7)
+    public const string CommandRejected = "COMMAND_REJECTED";
+    public const string OfflineGraceRelease = "OFFLINE_GRACE_RELEASE";
+    public const string ReleaseCodeLocked = "RELEASE_CODE_LOCKED";
+    public const string SessionConflict = "SESSION_CONFLICT";
+    public const string PolicyMismatch = "POLICY_MISMATCH";
+    public const string CaptureProtectionLost = "CAPTURE_PROTECTION_LOST";
 }
 
 public sealed class TelemetryEvent
@@ -499,7 +650,7 @@ public sealed class EventsResponse
 }
 
 // ======================================================================================
-// Submit / Unlock / Errors / Health
+// Submit / Unlock / Errors / Health — §10.5
 // ======================================================================================
 
 public sealed class EmptyBody
@@ -510,6 +661,10 @@ public sealed class SubmitResponse
 {
     [JsonPropertyName("ok")] public bool? Ok { get; set; }
     [JsonPropertyName("submittedAt")] public string? SubmittedAt { get; set; }
+    /// <summary>"auto" => a signed RELEASE follows; "teacher" (default) => wait for the teacher.</summary>
+    [JsonPropertyName("release")] public string? Release { get; set; }
+
+    [JsonIgnore] public bool ReleaseIsAuto => string.Equals(Release, "auto", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class UnlockRequest
@@ -521,7 +676,8 @@ public sealed class UnlockRequest
 public sealed class UnlockResponse
 {
     [JsonPropertyName("authorized")] public bool Authorized { get; set; }
-    [JsonPropertyName("authorizationId")] public string? AuthorizationId { get; set; }
+    /// <summary>§10.4: the same signed authorization object a RELEASE command carries.</summary>
+    [JsonPropertyName("authorization")] public CommandAuthorization? Authorization { get; set; }
     [JsonPropertyName("expiresAt")] public string? ExpiresAt { get; set; }
 }
 
@@ -552,4 +708,16 @@ public sealed class AppSettings
     [JsonPropertyName("lastStudentCode")] public string? LastStudentCode { get; set; }
     [JsonPropertyName("lastExamCode")] public string? LastExamCode { get; set; }
     [JsonPropertyName("fallbackHardwareId")] public string? FallbackHardwareId { get; set; }
+}
+
+/// <summary>Persisted set of used command nonces (DPAPI-protected file nonces.dat, §10.4).</summary>
+public sealed class NonceStoreFile
+{
+    [JsonPropertyName("entries")] public List<NonceEntry> Entries { get; set; } = new List<NonceEntry>();
+}
+
+public sealed class NonceEntry
+{
+    [JsonPropertyName("n")] public string Nonce { get; set; } = string.Empty;
+    [JsonPropertyName("t")] public string SeenAt { get; set; } = string.Empty;
 }

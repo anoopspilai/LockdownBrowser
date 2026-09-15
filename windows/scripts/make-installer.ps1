@@ -1,13 +1,19 @@
 <#
 .SYNOPSIS
-    Builds the app and then compiles windows\installer\AvaibeExam.iss into a Setup.exe.
+    Builds the app (Release only) and then compiles windows\installer\AvaibeExam.iss into a Setup.exe.
 
 .DESCRIPTION
     Two steps:
-      1. scripts\build.ps1  -> fills windows\publish\ with AvaibeExam.exe and its DLLs.
+      1. scripts\build.ps1 -Configuration Release -> fills windows\publish\ with AvaibeExam.exe,
+         its DLLs and build-info.json.
       2. ISCC.exe (the Inno Setup Compiler) reads windows\installer\AvaibeExam.iss,
          packs everything from windows\publish\ and writes
          windows\installer\output\AvaibeExam-Setup-0.1.0.exe
+
+    SAFETY: the installer is ONLY ever built from a Release publish. Debug builds contain the
+    developer switches (AVAIBE_AUTO_*, AVAIBE_SMOKE_TEST) and must never reach a student PC, so
+    this script reads windows\publish\build-info.json (written by build.ps1) and refuses to
+    continue unless it says configuration = "Release". There is no -Configuration parameter.
 
     Inno Setup is free and must be installed first:
         https://jrsoftware.org/isdl.php   (pick "Inno Setup 6" - the innosetup-6.x.x.exe file)
@@ -22,8 +28,6 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet("Debug", "Release")]
-    [string]$Configuration = "Release",
     [switch]$NoBuild,
     [switch]$Sign,
     [string]$CertThumbprint = "",
@@ -38,10 +42,10 @@ $outputDir = Join-Path $root "installer\output"
 
 if (-not (Test-Path $script)) { throw "Installer script not found: $script" }
 
-# ---- 1. Build / publish the app -------------------------------------------------------
+# ---- 1. Build / publish the app (Release) ---------------------------------------------
 if (-not $NoBuild) {
-    Write-Host "==> building the app first (scripts\build.ps1)"
-    $buildArgs = @{ Configuration = $Configuration }
+    Write-Host "==> building the app first (scripts\build.ps1 -Configuration Release)"
+    $buildArgs = @{ Configuration = "Release" }
     if ($Sign) {
         if (-not $CertThumbprint) { throw "-Sign requires -CertThumbprint" }
         $buildArgs["Sign"] = $true
@@ -55,6 +59,17 @@ $payload = Join-Path $publishDir "AvaibeExam.exe"
 if (-not (Test-Path $payload)) {
     throw "Nothing to package: $payload does not exist. Run .\scripts\build.ps1 first (or drop -NoBuild)."
 }
+
+# ---- 1b. Refuse anything that is not a Release publish --------------------------------
+$buildInfoPath = Join-Path $publishDir "build-info.json"
+if (-not (Test-Path $buildInfoPath)) {
+    throw "Refusing to package: $buildInfoPath is missing. The publish folder was not produced by scripts\build.ps1 (Release). Run .\scripts\build.ps1 and try again."
+}
+$buildInfo = Get-Content $buildInfoPath -Raw | ConvertFrom-Json
+if ($buildInfo.configuration -ne "Release") {
+    throw "Refusing to package: build-info.json says configuration = '$($buildInfo.configuration)'. Only Release builds may be turned into an installer (Debug builds contain developer switches)."
+}
+Write-Host "Payload: Release build $($buildInfo.version) from $($buildInfo.time) (commit '$($buildInfo.commit)')"
 
 # ---- 2. Locate the Inno Setup compiler ------------------------------------------------
 $iscc = $null

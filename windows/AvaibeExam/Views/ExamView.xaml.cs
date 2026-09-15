@@ -8,10 +8,11 @@ using AvaibeExam.Models;
 
 namespace AvaibeExam.Views;
 
-/// <summary>CONTRACT §7.3 — status strip + WebView2 + overlays (pause, warning, exit).</summary>
+/// <summary>CONTRACT §7.3 — status strip (with §10.3 Resources and §10.6 offline time) + WebView2 + overlays.</summary>
 public partial class ExamView : UserControl
 {
     private readonly AppState _state;
+    private bool _resettingResources;
 
     public ExamView(AppState state)
     {
@@ -19,6 +20,7 @@ public partial class ExamView : UserControl
         _state = state;
         DataContext = state;
         Exit.Attach(state);
+        Dialog.Attach(state);
         Warning.Dismissed += () => _state.DismissWarning();
 
         state.PropertyChanged += OnStateChanged;
@@ -59,15 +61,21 @@ public partial class ExamView : UserControl
         switch (e.PropertyName)
         {
             case nameof(AppState.Session):
+            case nameof(AppState.Policy):
+            case nameof(AppState.AllowedLinks):
             case nameof(AppState.RemainingSeconds):
             case nameof(AppState.RemainingTimeText):
             case nameof(AppState.LockdownMode):
             case nameof(AppState.IsOnline):
             case nameof(AppState.BackendReachable):
+            case nameof(AppState.OfflineSeconds):
+            case nameof(AppState.OfflineText):
             case nameof(AppState.DisplayCount):
             case nameof(AppState.WarningMessage):
             case nameof(AppState.PauseMessage):
             case nameof(AppState.ExitOverlay):
+            case nameof(AppState.ScriptDialog):
+            case nameof(AppState.IsOnResourcePage):
                 Render();
                 break;
         }
@@ -78,8 +86,8 @@ public partial class ExamView : UserControl
         HostWebView();
 
         var session = _state.Session;
-        StudentText.Text = session?.Student.Name ?? string.Empty;
-        ExamText.Text = session?.Exam.Title ?? string.Empty;
+        StudentText.Text = session?.StudentOrEmpty.Name ?? string.Empty;
+        ExamText.Text = session?.ExamOrEmpty.Title ?? string.Empty;
 
         CountdownText.Text = AppState.FormatCountdown(_state.RemainingSeconds);
         CountdownText.Foreground = _state.RemainingSeconds < 300
@@ -93,6 +101,10 @@ public partial class ExamView : UserControl
         OnlineDot.Fill = (Brush)FindResource(online && backend ? "SuccessBrush" : "DangerBrush");
         OnlineText.Text = online ? (backend ? "Online" : "Backend unreachable") : "Offline";
 
+        var offline = _state.OfflineText;
+        OfflineText.Text = offline;
+        OfflineText.Visibility = string.IsNullOrEmpty(offline) ? Visibility.Collapsed : Visibility.Visible;
+
         if (_state.DisplayCount > 1)
         {
             DisplaysText.Text = _state.DisplayCount + " displays";
@@ -102,6 +114,8 @@ public partial class ExamView : UserControl
         {
             DisplaysText.Visibility = Visibility.Collapsed;
         }
+
+        RenderResources();
 
         // Overlays
         var pause = _state.PauseMessage;
@@ -118,12 +132,68 @@ public partial class ExamView : UserControl
         Exit.Render();
         Exit.Visibility = exit != null ? Visibility.Visible : Visibility.Collapsed;
 
-        var anyOverlay = pause != null || warning != null || exit != null;
+        var dialog = _state.ScriptDialog;
+        var dialogWasHidden = Dialog.Visibility != Visibility.Visible;
+        Dialog.Render();
+        Dialog.Visibility = dialog != null ? Visibility.Visible : Visibility.Collapsed;
+
+        var anyOverlay = pause != null || warning != null || exit != null || dialog != null;
         // Airspace: the WebView2 HWND would paint over WPF overlays, so hide it while one is up.
         WebHost.Visibility = anyOverlay ? Visibility.Hidden : Visibility.Visible;
 
         if (exit != null && exitWasHidden) Exit.FocusCode();
         else if (warning != null && warningWasHidden && exit == null) Warning.FocusButton();
+        else if (dialog != null && dialogWasHidden && exit == null && warning == null) Dialog.FocusDefault();
+    }
+
+    private void RenderResources()
+    {
+        var links = _state.AllowedLinks;
+        if (links == null || links.Count == 0)
+        {
+            ResourcesPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+        ResourcesPanel.Visibility = Visibility.Visible;
+        if (!ReferenceEquals(ResourcesBox.ItemsSource, links))
+        {
+            _resettingResources = true;
+            try
+            {
+                ResourcesBox.ItemsSource = links;
+                ResourcesBox.SelectedIndex = -1;
+            }
+            finally
+            {
+                _resettingResources = false;
+            }
+        }
+        BackToExamButton.Visibility = _state.IsOnResourcePage ? Visibility.Visible : Visibility.Collapsed;
+        var locked = _state.ExitOverlay != null || _state.PauseMessage != null;
+        ResourcesBox.IsEnabled = !locked;
+        BackToExamButton.IsEnabled = !locked;
+    }
+
+    private void ResourcesBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_resettingResources) return;
+        var link = ResourcesBox.SelectedItem as AllowedLink;
+        if (link == null) return;
+        _resettingResources = true;
+        try
+        {
+            ResourcesBox.SelectedIndex = -1;   // behaves like a menu, not a persistent selection
+        }
+        finally
+        {
+            _resettingResources = false;
+        }
+        _state.OpenAllowedLink(link);
+    }
+
+    private void BackToExamButton_Click(object sender, RoutedEventArgs e)
+    {
+        _state.BackToExam();
     }
 
     private void RenderBadge(LockdownMode mode)
@@ -134,16 +204,16 @@ public partial class ExamView : UserControl
         switch (mode)
         {
             case LockdownMode.AssignedAccess:
-                text = "Assigned Access";
+                text = "Assigned Access (client-reported)";
                 fg = (Brush)FindResource("SuccessBrush");
                 bg = Color.FromArgb(0x33, 0x16, 0xA3, 0x4A);
-                BadgeBorder.ToolTip = "Running inside a Windows Assigned Access kiosk session (OS-enforced single-app shell) plus client controls.";
+                BadgeBorder.ToolTip = "A machine-wide (HKLM) Shell Launcher / Assigned Access configuration was found. This is a client-reported hint; the server decides whether it counts. Client controls are applied as well.";
                 break;
             case LockdownMode.KioskFallback:
                 text = "Kiosk fallback";
                 fg = (Brush)FindResource("WarningBrush");
                 bg = Color.FromArgb(0x33, 0xD9, 0x77, 0x06);
-                BadgeBorder.ToolTip = "Best-effort kiosk mode: not an Assigned Access session. Ctrl+Alt+Del cannot be blocked; all attempts are reported.";
+                BadgeBorder.ToolTip = "Best-effort kiosk mode: no Assigned Access configuration found. Ctrl+Alt+Del cannot be blocked; all attempts are reported.";
                 break;
             default:
                 text = "Not locked";

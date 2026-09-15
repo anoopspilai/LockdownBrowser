@@ -9,8 +9,10 @@ using AvaibeExam.Models;
 namespace AvaibeExam.Views;
 
 /// <summary>
-/// CONTRACT §7.5 / §9.6 — "Exam locked. Ask your teacher for a release code." Native WPF overlay:
-/// lockdown ends only after the server validates the code (POST /unlock) or sends RELEASE.
+/// CONTRACT §7.5 / §9.6 / §10.4 — the native exit / hold overlay ("Exam locked", "Session
+/// terminated", "Exam submitted", "Time is up"). Lockdown ends only after the server's signed
+/// authorization is verified (POST /unlock or a RELEASE command). "Back to exam" (W-17) is shown
+/// only while nothing has been submitted and no release is pending.
 /// </summary>
 public partial class ExitOverlay : UserControl
 {
@@ -21,12 +23,19 @@ public partial class ExitOverlay : UserControl
     public ExitOverlay()
     {
         InitializeComponent();
+        Unloaded += OnUnloaded;   // W-32
     }
 
     public void Attach(AppState state)
     {
         _state = state;
         Render();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_model != null) _model.PropertyChanged -= OnModelChanged;
+        _model = null;
     }
 
     /// <summary>Re-binds to AppState.ExitOverlay (may be a new object) and refreshes the UI.</summary>
@@ -49,6 +58,7 @@ public partial class ExitOverlay : UserControl
     {
         var model = _model;
         if (model == null) return;
+        TitleText.Text = model.Title;
         MessageText.Text = model.Message;
         CodePanel.Visibility = model.AllowReleaseCode ? Visibility.Visible : Visibility.Collapsed;
         ErrorText.Text = model.ErrorText ?? string.Empty;
@@ -56,6 +66,7 @@ public partial class ExitOverlay : UserControl
         StatusText.Text = model.Verifying ? "Verifying…" : model.StatusText;
         CodeBox.IsEnabled = !model.Verifying;
         VerifyButton.IsEnabled = !model.Verifying && CodeBox.Text.Length == 6;
+        BackButton.Visibility = model.CanGoBack && !model.Verifying ? Visibility.Visible : Visibility.Collapsed;
         ModeText.Text = "Mode: " + (_state?.LockdownMode ?? LockdownMode.None).DisplayName();
     }
 
@@ -104,9 +115,13 @@ public partial class ExitOverlay : UserControl
 
     private void VerifyButton_Click(object sender, RoutedEventArgs e) => Verify();
 
+    private void BackButton_Click(object sender, RoutedEventArgs e) => _state?.DismissExitOverlay();
+
     private void Verify()
     {
         if (_state == null || CodeBox.Text.Length != 6) return;
-        _state.VerifyReleaseCode(CodeBox.Text);
+        var code = CodeBox.Text;
+        CodeBox.Text = string.Empty;   // never leave the digits on screen or in the control
+        _state.VerifyReleaseCode(code);
     }
 }

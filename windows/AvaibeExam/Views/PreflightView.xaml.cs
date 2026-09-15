@@ -34,14 +34,17 @@ public partial class PreflightView : UserControl
     {
         var session = _state.Session;
         SessionText.Text = session != null
-            ? session.Student.Name + " · " + session.Exam.Title + " (" + session.Exam.Code + ")"
+            ? session.StudentOrEmpty.Name + " · " + session.ExamOrEmpty.Title + " (" + session.ExamOrEmpty.Code + ")"
             : "Session not started yet — the server rejected the readiness check.";
 
         var policy = _state.Policy;
         PolicyText.Text = "Policy: " + (_state.HasServerPolicy ? "server" : "conservative defaults") +
                           " · Mode: " + policy.Mode +
                           " · Requires Assigned Access: " + (policy.RequireAAC ? "yes" : "no") +
-                          " · External display: " + policy.ExternalDisplayAction.Wire();
+                          " · External display: " + policy.ExternalDisplayAction.Wire() +
+                          " · Release on submit: " + policy.ReleaseOnSubmit +
+                          " · Offline grace: " + policy.OfflineGraceSeconds + "s" +
+                          " · Resources: " + policy.AllowedLinks.Count;
 
         var failures = _state.PreflightServerFailures;
         if (failures.Count > 0)
@@ -60,15 +63,15 @@ public partial class PreflightView : UserControl
 
         if (_state.RequireAACButUnavailable)
         {
-            ModeNoteText.Text = "This exam's policy requires a Windows Assigned Access (kiosk) session. This device is not running in one, " +
-                                "so the OS cannot enforce the single-app shell and the client will refuse to start in kiosk-fallback mode. " +
-                                "Ask your administrator to configure the kiosk account.";
+            ModeNoteText.Text = "This exam's policy requires a Windows Assigned Access (kiosk) configuration. No machine-wide kiosk " +
+                                "configuration was found on this device (client-reported), so the client will refuse to start in " +
+                                "kiosk-fallback mode. Ask your administrator to configure the kiosk account.";
             ModeNoteText.Foreground = (System.Windows.Media.Brush)FindResource("WarningBrush");
             ModeNoteText.Visibility = Visibility.Visible;
         }
-        else if (!_state.AssignedAccessDetected)
+        else if (!_state.AssignedAccessHint)
         {
-            ModeNoteText.Text = "Not running in an Assigned Access kiosk session. The exam will run in kiosk-fallback mode: best-effort " +
+            ModeNoteText.Text = "No Assigned Access kiosk configuration found (client-reported). The exam will run in kiosk-fallback mode: best-effort " +
                                 "controls (fullscreen topmost window, keyboard hook, capture protection, focus watchdog) that are reported " +
                                 "honestly to your teacher. Ctrl+Alt+Del cannot be blocked.";
             ModeNoteText.Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush");

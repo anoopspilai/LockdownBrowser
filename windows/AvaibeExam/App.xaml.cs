@@ -1,16 +1,20 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using AvaibeExam.Browser;
 using AvaibeExam.Core;
+using AvaibeExam.Models;
 using AvaibeExam.Util;
 
 namespace AvaibeExam;
 
 /// <summary>
 /// Composition root (no DI container): single-instance mutex, global exception handlers,
-/// AppState + MainWindow, dev-only auto-run and smoke test.
+/// AppState + MainWindow, dev-only auto-run and smoke test (DEBUG builds only, §10.9).
 /// </summary>
 public partial class App : System.Windows.Application
 {
@@ -23,24 +27,40 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
 
         Log.Prune(14);
-        Log.Info(LogCat, $"{Constants.ProductName} {Constants.ClientVersion} launching (pid {Environment.ProcessId}, {Environment.OSVersion.VersionString}, .NET {Environment.Version})");
+        Log.Info(LogCat, $"{Constants.ProductName} {Constants.ClientVersion} launching (pid {Environment.ProcessId}, {Environment.OSVersion.VersionString}, .NET {Environment.Version}, devSwitches={Constants.DevSwitchesEnabled})");
 
         bool createdNew;
+        var mutexSquat = false;
         _singleInstance = new Mutex(true, Constants.SingleInstanceMutexName, out createdNew);
         if (!createdNew)
         {
-            Log.Warn(LogCat, "Another instance is already running; exiting");
-            System.Windows.MessageBox.Show("Avaibe Exam is already running.", Constants.ProductName, MessageBoxButton.OK, MessageBoxImage.Information);
-            Shutdown(1);
-            return;
+            // W-27: the mutex name can be squatted by any process in the session to keep the exam
+            // client from starting. Only yield when a live AvaibeExam process actually exists.
+            if (AnotherInstanceIsRunning())
+            {
+                Log.Warn(LogCat, "Another instance is already running; exiting");
+                System.Windows.MessageBox.Show("Avaibe Exam is already running.", Constants.ProductName, MessageBoxButton.OK, MessageBoxImage.Information);
+                Shutdown(1);
+                return;
+            }
+            mutexSquat = true;
+            Log.Error("security", "Single-instance mutex is held by a foreign process (mutex squat); continuing");
         }
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
+        ExamWebView.SweepStaleUserDataFolders();   // W-18
+
         var state = new AppState();
         _state = state;
+        if (mutexSquat)
+        {
+            // Held in the queue until a session starts, then delivered with the first batch.
+            state.Events.Record(EventType.LockdownFailed, EventSeverity.High,
+                new Dictionary<string, object?> { ["reason"] = "mutex-squat" });
+        }
         var window = new MainWindow(state);
         state.AttachWindow(window);
         MainWindow = window;
@@ -48,6 +68,7 @@ public partial class App : System.Windows.Application
 
         state.AutoRunIfRequested();
 
+#if DEBUG
         if (Constants.EnvIsOne(Constants.EnvSmokeTest))
         {
             Log.Info(LogCat, "SMOKE_OK");
@@ -59,6 +80,41 @@ public partial class App : System.Windows.Application
                 Shutdown(0);
             };
             timer.Start();
+        }
+#endif
+    }
+
+    /// <summary>True when a different live process named AvaibeExam exists in any session.</summary>
+    private static bool AnotherInstanceIsRunning()
+    {
+        try
+        {
+            var me = Environment.ProcessId;
+            var others = Process.GetProcessesByName(Constants.ProcessName);
+            try
+            {
+                foreach (var p in others)
+                {
+                    try
+                    {
+                        if (p.Id != me && !p.HasExited) return true;
+                    }
+                    catch
+                    {
+                        // access denied: assume it is real
+                        if (p.Id != me) return true;
+                    }
+                }
+                return false;
+            }
+            finally
+            {
+                foreach (var p in others) p.Dispose();
+            }
+        }
+        catch
+        {
+            return true; // cannot tell: behave like before (yield)
         }
     }
 
@@ -72,8 +128,9 @@ public partial class App : System.Windows.Application
         }
         catch
         {
-            // ignore
+            // ignore (not owned when squatted)
         }
+        Log.Shutdown();
         base.OnExit(e);
     }
 
@@ -101,6 +158,7 @@ public partial class App : System.Windows.Application
     {
         var ex = e.ExceptionObject as Exception;
         Log.Error(LogCat, "Unhandled domain exception (terminating=" + e.IsTerminating + "): " + (ex?.ToString() ?? e.ExceptionObject?.ToString() ?? "?"));
+        if (e.IsTerminating) Log.Shutdown(1000);
     }
 
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)

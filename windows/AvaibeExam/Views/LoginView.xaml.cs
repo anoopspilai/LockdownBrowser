@@ -16,6 +16,10 @@ public partial class LoginView : UserControl
         _state = state;
         DataContext = state;
         SubtitleText.Text = "Secure exam client for Windows · v" + Constants.ClientVersion;
+        // §10.9: IT-preset base URL => read-only field.
+        BaseUrlBox.IsReadOnly = state.BaseUrlLocked;
+        BaseUrlBox.IsEnabled = !state.BaseUrlLocked;
+        BaseUrlLockedText.Visibility = state.BaseUrlLocked ? Visibility.Visible : Visibility.Collapsed;
         state.PropertyChanged += OnStateChanged;
         Unloaded += (_, __) => state.PropertyChanged -= OnStateChanged;
         Render();

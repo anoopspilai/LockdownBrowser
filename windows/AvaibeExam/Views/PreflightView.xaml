@@ -11,7 +11,9 @@
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
-            <TextBlock Style="{StaticResource TitleText}" Text="Readiness check"/>
+            <TextBlock Style="{StaticResource TitleText}" Text="Readiness check (client-reported)"/>
+            <TextBlock Style="{StaticResource CaptionText}" Margin="0,2,0,0"
+                       Text="Every item below is measured by this client and reported to the server as such. The server makes the final decision."/>
             <TextBlock x:Name="SessionText" Style="{StaticResource BodyText}" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/>
             <TextBlock x:Name="PolicyText" Style="{StaticResource CaptionText}" Margin="0,4,0,0"/>
         </StackPanel>
